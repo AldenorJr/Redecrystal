@@ -140,22 +140,40 @@ public final class LobbyHotbar implements Listener {
 
     private void showProfile(Player p) {
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            ProfileData fetched;
             try {
-                ProfileData d = crystal.backend().getProfile(p.getUniqueId().toString());
-                if (d == null) {
-                    p.sendMessage(Component.text("Perfil ainda não carregado.", NamedTextColor.RED));
-                    return;
-                }
-                p.sendMessage(Component.text("Rank ", NamedTextColor.GRAY)
-                        .append(Component.text(d.rank(), NamedTextColor.GOLD))
-                        .append(Component.text("  •  Level ", NamedTextColor.GRAY))
-                        .append(Component.text(d.level(), NamedTextColor.AQUA))
-                        .append(Component.text("  •  Coins ", NamedTextColor.GRAY))
-                        .append(Component.text(d.coins(), NamedTextColor.YELLOW)));
+                fetched = crystal.backend().getProfile(p.getUniqueId().toString());
             } catch (Exception e) {
-                p.sendMessage(Component.text("Erro ao carregar perfil.", NamedTextColor.RED));
+                fetched = null;
             }
+            final ProfileData data = fetched;
+            Bukkit.getScheduler().runTask(plugin, () -> openProfile(p, data));
         });
+    }
+
+    private void openProfile(Player p, ProfileData d) {
+        if (!p.isOnline()) {
+            return;
+        }
+        MenuHolder holder = new MenuHolder("profile");
+        Inventory inv = Bukkit.createInventory(holder, 9, Component.text("Perfil"));
+        ItemStack head = new ItemStack(Material.PLAYER_HEAD);
+        if (head.getItemMeta() instanceof SkullMeta skull) {
+            skull.setOwningPlayer(p);
+            skull.displayName(Component.text("§a" + p.getName()).decoration(TextDecoration.ITALIC, false));
+            if (d != null) {
+                skull.lore(java.util.List.of(
+                        Component.text("§7Rank: §6" + d.rank()).decoration(TextDecoration.ITALIC, false),
+                        Component.text("§7Level: §b" + d.level()).decoration(TextDecoration.ITALIC, false),
+                        Component.text("§7Coins: §e" + d.coins()).decoration(TextDecoration.ITALIC, false)));
+            } else {
+                skull.lore(java.util.List.of(
+                        Component.text("§cPerfil ainda não carregado.").decoration(TextDecoration.ITALIC, false)));
+            }
+            head.setItemMeta(skull);
+        }
+        inv.setItem(4, head);
+        p.openInventory(inv);
     }
 
     private void toggleHide(Player p) {
