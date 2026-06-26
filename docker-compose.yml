@@ -1,0 +1,374 @@
+# ──────────────────────────────────────────────────────────────────────────
+# RedeCrystal — backend microservices stack.
+# Data plane (Postgres, Redis, Kafka, Kafka UI) + Eureka registry + API Gateway
+# + core-service. The gateway is the ONLY published backend entry point and the
+# only component that authenticates requests.
+#
+#   cp .env.example .env && docker compose up -d
+# ──────────────────────────────────────────────────────────────────────────
+name: redecrystal
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-redecrystal}
+      POSTGRES_USER: ${POSTGRES_USER:-crystal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-crystal}
+    ports:
+      - "${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Database-per-service provisioning (runs once on a fresh volume).
+      - ./infra/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-crystal} -d ${POSTGRES_DB:-redecrystal}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  kafka:
+    image: apache/kafka:3.8.0
+    ports:
+      - "29092:29092"  # host access
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+
+  kafka-init:
+    image: apache/kafka:3.8.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/scripts/create-topics.sh"]
+    environment:
+      KAFKA_BROKERS: kafka:9092
+    volumes:
+      - ./infra/kafka:/scripts:ro
+    restart: "no"
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${KAFKA_UI_PORT:-8085}:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: redecrystal
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      DYNAMIC_CONFIG_ENABLED: "true"
+
+  # ── Service registry ──
+  eureka-server:
+    build:
+      context: ./backend
+      args:
+        MODULE: eureka-server
+    ports:
+      - "${EUREKA_PORT:-8761}:8761"
+    environment:
+      EUREKA_HOSTNAME: eureka-server
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8761/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # ── Domain service (config + game-server discovery). Internal only. ──
+  core-service:
+    build:
+      context: ./backend
+      args:
+        MODULE: core-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8081
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      CORE_DB: core_db
+      POSTGRES_USER: ${POSTGRES_USER:-crystal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-crystal}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      EUREKA_PREFER_IP: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  # ── API Gateway: single entry point + only authenticator ──
+  api-gateway:
+    build:
+      context: ./backend
+      args:
+        MODULE: api-gateway
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      core-service:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    environment:
+      SERVER_PORT: 8080
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      EUREKA_PREFER_IP: "true"
+      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:-change-me-dev-service-token}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  # ── Minecraft: Velocity proxy (single entry point for players) ──
+  proxy-01:
+    image: itzg/mc-proxy:java21
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      TYPE: VELOCITY
+      # Crystal SDK bootstrap
+      BACKEND_URL: http://api-gateway:8080
+      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:-change-me-dev-service-token}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+      SERVER_ID: proxy-01
+      SERVER_TYPE: proxy
+      SERVER_HOST: proxy-01
+      SERVER_PORT: 25565
+    ports:
+      - "${MC_PORT:-25565}:25565"
+    volumes:
+      - ./servers/bungeecord/proxy-01/velocity.toml:/server/velocity.toml
+      - ./plugins/crystal-bungee/target/crystal-bungee.jar:/plugins/crystal-bungee.jar:ro
+      - ./EXTERNAL_PLUGINS/ViaVersion-5.10.1-SNAPSHOT.jar:/plugins/ViaVersion.jar:ro
+      - ./EXTERNAL_PLUGINS/ViaBackwards-5.10.1-SNAPSHOT.jar:/plugins/ViaBackwards.jar:ro
+      - ./EXTERNAL_PLUGINS/ViaRewind-4.1.3-SNAPSHOT.jar:/plugins/ViaRewind.jar:ro
+
+  # ── Minecraft: login server (Paper) ──
+  login-01:
+    image: itzg/minecraft-server:java21
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      EULA: "TRUE"
+      TYPE: PAPER
+      VERSION: "1.21.1"
+      ONLINE_MODE: "FALSE"
+      MEMORY: 1G
+      LEVEL_TYPE: FLAT
+      GENERATOR_SETTINGS: '{"biome":"minecraft:the_void","layers":[{"block":"minecraft:air","height":1}]}'
+      CRYSTAL_WORLD_SCHEMATIC: /schematics/redhouseterrian.schem
+      CRYSTAL_WORLD_PASTE: "0,64,0"
+      BACKEND_URL: http://api-gateway:8080
+      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:-change-me-dev-service-token}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+      SERVER_ID: login-01
+      SERVER_TYPE: login
+      SERVER_HOST: login-01
+      SERVER_PORT: 25565
+    volumes:
+      - login01data:/data
+      - ./plugins/crystal-login/target/crystal-login.jar:/plugins/crystal-login.jar:ro
+      - ./servers/bukkit.yml:/data/bukkit.yml
+      - ./EXTERNAL_PLUGINS/FastAsyncWorldEdit-Paper-2.15.2.jar:/plugins/FastAsyncWorldEdit.jar:ro
+      - ./plugins/crystal-worldinit/target/crystal-worldinit.jar:/plugins/crystal-worldinit.jar:ro
+      - ./world/WORLD_LOGIN/redhouseterrian.schem:/schematics/redhouseterrian.schem:ro
+
+  # ── Minecraft: lobby fleet (Paper). Horizontally scalable: each instance is
+  #    the SAME definition with a different SERVER_ID. crystal-bungee discovers
+  #    them via the registry — no proxy config change to add or remove one. ──
+  lobby-01:
+    image: itzg/minecraft-server:java21
+    depends_on: &mc-deps
+      api-gateway:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment: &lobby-env
+      EULA: "TRUE"
+      TYPE: PAPER
+      VERSION: "1.21.1"
+      ONLINE_MODE: "FALSE"
+      MEMORY: 1536M
+      # Void world — clean canvas for the pasted hub schematic. Flat+void is
+      # deterministic, so every lobby is identical (one parkour course fits all).
+      LEVEL_TYPE: FLAT
+      GENERATOR_SETTINGS: '{"biome":"minecraft:the_void","layers":[{"block":"minecraft:air","height":1}]}'
+      CRYSTAL_WORLD_SCHEMATIC: /schematics/hub-lobby-medieval.schematic
+      CRYSTAL_WORLD_PASTE: "0,64,0"
+      LUCKPERMS_STORAGE_METHOD: postgresql
+      LUCKPERMS_DATA_ADDRESS: postgres:5432
+      LUCKPERMS_DATA_DATABASE: luckperms_db
+      LUCKPERMS_DATA_USERNAME: ${POSTGRES_USER:-crystal}
+      LUCKPERMS_DATA_PASSWORD: ${POSTGRES_PASSWORD:-crystal}
+      LUCKPERMS_MESSAGING_SERVICE: redis
+      LUCKPERMS_REDIS_ENABLED: "true"
+      LUCKPERMS_REDIS_ADDRESS: redis:6379
+      BACKEND_URL: http://api-gateway:8080
+      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:-change-me-dev-service-token}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+      SERVER_ID: lobby-01
+      SERVER_TYPE: lobby
+      SERVER_HOST: lobby-01
+      SERVER_PORT: 25565
+    volumes:
+      - lobby01data:/data
+      - ./plugins/crystal-lobby/target/crystal-lobby.jar:/plugins/crystal-lobby.jar:ro
+      - ./plugins/crystal-chat/target/crystal-chat.jar:/plugins/crystal-chat.jar:ro
+      - ./plugins/crystal-profile/target/crystal-profile.jar:/plugins/crystal-profile.jar:ro
+      - ./plugins/crystal-inventory/target/crystal-inventory.jar:/plugins/crystal-inventory.jar:ro
+      - ./plugins/crystal-parkour/target/crystal-parkour.jar:/plugins/crystal-parkour.jar:ro
+      - ./servers/bukkit.yml:/data/bukkit.yml
+      - ./EXTERNAL_PLUGINS/FastAsyncWorldEdit-Paper-2.15.2.jar:/plugins/FastAsyncWorldEdit.jar:ro
+      - ./plugins/crystal-worldinit/target/crystal-worldinit.jar:/plugins/crystal-worldinit.jar:ro
+      - ./world/WORLD_LOBBY/hub-lobby-medieval.schematic:/schematics/hub-lobby-medieval.schematic:ro
+      - ./EXTERNAL_PLUGINS/LuckPerms-Bukkit-5.5.53.jar:/plugins/LuckPerms.jar:ro
+      - ./plugins/crystal-tab/target/crystal-tab.jar:/plugins/crystal-tab.jar:ro
+
+  lobby-02:
+    image: itzg/minecraft-server:java21
+    depends_on: *mc-deps
+    environment:
+      <<: *lobby-env
+      SERVER_ID: lobby-02
+      SERVER_HOST: lobby-02
+    volumes:
+      - lobby02data:/data
+      - ./plugins/crystal-lobby/target/crystal-lobby.jar:/plugins/crystal-lobby.jar:ro
+      - ./plugins/crystal-chat/target/crystal-chat.jar:/plugins/crystal-chat.jar:ro
+      - ./plugins/crystal-profile/target/crystal-profile.jar:/plugins/crystal-profile.jar:ro
+      - ./plugins/crystal-inventory/target/crystal-inventory.jar:/plugins/crystal-inventory.jar:ro
+      - ./plugins/crystal-parkour/target/crystal-parkour.jar:/plugins/crystal-parkour.jar:ro
+      - ./servers/bukkit.yml:/data/bukkit.yml
+      - ./EXTERNAL_PLUGINS/FastAsyncWorldEdit-Paper-2.15.2.jar:/plugins/FastAsyncWorldEdit.jar:ro
+      - ./plugins/crystal-worldinit/target/crystal-worldinit.jar:/plugins/crystal-worldinit.jar:ro
+      - ./world/WORLD_LOBBY/hub-lobby-medieval.schematic:/schematics/hub-lobby-medieval.schematic:ro
+      - ./EXTERNAL_PLUGINS/LuckPerms-Bukkit-5.5.53.jar:/plugins/LuckPerms.jar:ro
+      - ./plugins/crystal-tab/target/crystal-tab.jar:/plugins/crystal-tab.jar:ro
+
+  lobby-03:
+    image: itzg/minecraft-server:java21
+    depends_on: *mc-deps
+    environment:
+      <<: *lobby-env
+      SERVER_ID: lobby-03
+      SERVER_HOST: lobby-03
+    volumes:
+      - lobby03data:/data
+      - ./plugins/crystal-lobby/target/crystal-lobby.jar:/plugins/crystal-lobby.jar:ro
+      - ./plugins/crystal-chat/target/crystal-chat.jar:/plugins/crystal-chat.jar:ro
+      - ./plugins/crystal-profile/target/crystal-profile.jar:/plugins/crystal-profile.jar:ro
+      - ./plugins/crystal-inventory/target/crystal-inventory.jar:/plugins/crystal-inventory.jar:ro
+      - ./plugins/crystal-parkour/target/crystal-parkour.jar:/plugins/crystal-parkour.jar:ro
+      - ./servers/bukkit.yml:/data/bukkit.yml
+      - ./EXTERNAL_PLUGINS/FastAsyncWorldEdit-Paper-2.15.2.jar:/plugins/FastAsyncWorldEdit.jar:ro
+      - ./plugins/crystal-worldinit/target/crystal-worldinit.jar:/plugins/crystal-worldinit.jar:ro
+      - ./world/WORLD_LOBBY/hub-lobby-medieval.schematic:/schematics/hub-lobby-medieval.schematic:ro
+      - ./EXTERNAL_PLUGINS/LuckPerms-Bukkit-5.5.53.jar:/plugins/LuckPerms.jar:ro
+      - ./plugins/crystal-tab/target/crystal-tab.jar:/plugins/crystal-tab.jar:ro
+
+  # ── Observability ──
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    command: ["--kafka.server=kafka:9092"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "9308:9308"
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+
+volumes:
+  pgdata:
+  redisdata:
+  login01data:
+  lobby01data:
+  lobby02data:
+  lobby03data:
+  promdata:
+  grafanadata:

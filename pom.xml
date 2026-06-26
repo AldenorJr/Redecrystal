@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.redecrystal</groupId>
+    <artifactId>redecrystal-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>RedeCrystal</name>
+    <description>Distributed, horizontally-scalable Minecraft network infrastructure.</description>
+
+    <!--
+      Top-level aggregator. The backend is a Spring Cloud microservices system
+      (Eureka registry + API Gateway + domain services); plugins are added from
+      Phase 3 onwards. Shared versions live in backend/pom.xml.
+    -->
+    <modules>
+        <module>backend</module>
+        <module>plugins</module>
+    </modules>
+
+</project>

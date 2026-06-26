@@ -1,0 +1,9 @@
+# Minimal Paper global config to enable Velocity modern forwarding.
+# Paper merges all other defaults on first load. The secret must match
+# infra/secrets/forwarding.secret used by the proxy.
+_version: 29
+proxies:
+  velocity:
+    enabled: true
+    online-mode: false
+    secret: crystal-dev-forwarding-secret

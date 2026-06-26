@@ -1,0 +1,6 @@
+name: CrystalInventory
+version: 0.1.0
+main: com.redecrystal.inventory.CrystalInventoryPlugin
+api-version: '1.21'
+author: RedeCrystal
+description: Loads and saves player inventories through the Crystal backend.

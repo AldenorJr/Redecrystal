@@ -1,0 +1,6 @@
+name: CrystalLogin
+version: 0.1.0
+main: com.redecrystal.login.CrystalLoginPlugin
+api-version: '1.21'
+author: RedeCrystal
+description: Session/auth gateway that forwards players to a lobby.

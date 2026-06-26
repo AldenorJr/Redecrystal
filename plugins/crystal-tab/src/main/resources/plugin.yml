@@ -1,0 +1,7 @@
+name: CrystalTab
+version: 0.1.0
+main: com.redecrystal.tab.CrystalTabPlugin
+api-version: '1.21'
+author: RedeCrystal
+description: Tab-list header/footer and LuckPerms prefixes, driven by central config.
+depend: [LuckPerms]

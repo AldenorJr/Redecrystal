@@ -1,0 +1,9 @@
+name: CrystalProfile
+version: 0.1.0
+main: com.redecrystal.profile.CrystalProfilePlugin
+api-version: '1.21'
+author: RedeCrystal
+description: Player profile and progression backed by the Crystal backend.
+commands:
+  profile:
+    description: Show your RedeCrystal profile stats

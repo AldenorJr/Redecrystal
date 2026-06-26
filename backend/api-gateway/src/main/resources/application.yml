@@ -1,0 +1,64 @@
+# ──────────────────────────────────────────────────────────────────────────
+# API Gateway — single entry point. Authenticates (service token) then routes
+# to Eureka-discovered services via lb://. The ONLY published backend port.
+# ──────────────────────────────────────────────────────────────────────────
+spring:
+  application:
+    name: api-gateway
+
+  cloud:
+    gateway:
+      # Explicit routes keep clean external paths (no service-name prefix).
+      routes:
+        - id: core-config
+          uri: lb://core-service
+          predicates:
+            - Path=/api/config/**
+        - id: core-network
+          uri: lb://core-service
+          predicates:
+            - Path=/api/network/**
+        - id: core-profile
+          uri: lb://core-service
+          predicates:
+            - Path=/api/profile/**
+        - id: core-inventory
+          uri: lb://core-service
+          predicates:
+            - Path=/api/inventory/**
+        - id: core-parkour
+          uri: lb://core-service
+          predicates:
+            - Path=/api/parkour/**
+      httpclient:
+        connect-timeout: 2000
+        response-timeout: 5s
+
+server:
+  port: ${SERVER_PORT:8080}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+  instance:
+    prefer-ip-address: ${EUREKA_PREFER_IP:false}
+
+# The single authentication secret, enforced by ServiceTokenAuthFilter.
+redecrystal:
+  security:
+    service-token: ${BACKEND_SERVICE_TOKEN:change-me-dev-service-token}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, gateway, prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+    gateway:
+      # Disabled by default in recent Spring Cloud; enable for route introspection.
+      enabled: true

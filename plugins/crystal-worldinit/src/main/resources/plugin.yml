@@ -1,0 +1,7 @@
+name: CrystalWorldInit
+version: 0.1.0
+main: com.redecrystal.worldinit.CrystalWorldInitPlugin
+api-version: '1.21'
+author: RedeCrystal
+description: Pastes a configured schematic into the void world on first startup.
+depend: [FastAsyncWorldEdit]

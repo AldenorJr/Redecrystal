@@ -1,0 +1,14 @@
+name: CrystalParkour
+version: 0.1.0
+main: com.redecrystal.parkour.CrystalParkourPlugin
+api-version: '1.21'
+author: RedeCrystal
+description: In-lobby parkour with a configurable course and best-time leaderboard.
+commands:
+  parkour:
+    description: Play the lobby parkour
+    aliases: [pk]
+permissions:
+  crystal.parkour.admin:
+    description: Configure the parkour course
+    default: op

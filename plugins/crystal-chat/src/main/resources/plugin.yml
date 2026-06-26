@@ -1,0 +1,16 @@
+name: CrystalChat
+version: 0.1.0
+main: com.redecrystal.chat.CrystalChatPlugin
+api-version: '1.21'
+author: RedeCrystal
+description: Network-wide chat over Kafka with private messages and moderation.
+commands:
+  tell:
+    description: Send a private message
+    usage: /tell <jogador> <mensagem>
+    aliases: [msg, w]
+  r:
+    description: Reply to the last private message
+    usage: /r <mensagem>
+  telltoggle:
+    description: Toggle receiving private messages

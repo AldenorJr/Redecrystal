@@ -1,0 +1,14 @@
+name: CrystalLobby
+version: 0.1.0
+main: com.redecrystal.lobby.CrystalLobbyPlugin
+api-version: '1.21'
+author: RedeCrystal
+description: Config-driven lobby experience backed by the Crystal SDK.
+commands:
+  lobby:
+    description: Go to the lobby spawn (/lobby setspawn for admins)
+    usage: /lobby [setspawn]
+permissions:
+  crystal.lobby.admin:
+    description: Manage the lobby (set spawn)
+    default: op
