@@ -15,15 +15,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import org.bukkit.NamespacedKey;
-import org.bukkit.persistence.PersistentDataType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.Particle;
 import org.bukkit.entity.Player;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
@@ -31,19 +32,22 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
+import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /**
- * The lobby's locked cosmetic hotbar and its menus. Slots: 0 games selector
- * (compass → GUI), 4 profile (head), 7 hide-players toggle, 8 cosmetics (stub).
- * The lobby inventory is read-only (no drop/move/click). Clicking the parkour
- * entry simply runs {@code /parkour}, keeping this plugin decoupled from it.
+ * The lobby's locked cosmetic hotbar and its menus (all GUIs use a bordered
+ * 3-row layout). Hotbar slots: 0 games, 3 lobbys, 4 profile (head), 7 hide
+ * toggle, 8 cosmetics. The lobby inventory is read-only. Cosmetics are particle
+ * trails applied per-player (session-scoped) by a repeating task.
  */
 public final class LobbyHotbar implements Listener {
 
@@ -53,12 +57,36 @@ public final class LobbyHotbar implements Listener {
     private final JavaPlugin plugin;
     private final CrystalCore crystal;
     private final Map<UUID, Boolean> playersHidden = new ConcurrentHashMap<>();
+    private final Map<UUID, Cosmetic> activeCosmetic = new ConcurrentHashMap<>();
     private final NamespacedKey lobbyKey;
+    private final NamespacedKey cosmeticKey;
 
     public LobbyHotbar(JavaPlugin plugin, CrystalCore crystal) {
         this.plugin = plugin;
         this.crystal = crystal;
         this.lobbyKey = new NamespacedKey(plugin, "lobby-id");
+        this.cosmeticKey = new NamespacedKey(plugin, "cosmetic-id");
+    }
+
+    /** Particle-trail cosmetics offered in the cosmetics menu. */
+    private enum Cosmetic {
+        NONE(Material.BARRIER, "§cRemover cosmético", null),
+        FLAME(Material.BLAZE_POWDER, "§6Trilha de Fogo", Particle.FLAME),
+        HEART(Material.POPPY, "§dCorações", Particle.HEART),
+        HAPPY(Material.SLIME_BALL, "§aVila Feliz", Particle.HAPPY_VILLAGER),
+        NOTE(Material.NOTE_BLOCK, "§bNotas Musicais", Particle.NOTE),
+        CLOUD(Material.WHITE_WOOL, "§fNuvem", Particle.CLOUD),
+        PORTAL(Material.OBSIDIAN, "§5Portal", Particle.PORTAL);
+
+        final Material icon;
+        final String name;
+        final Particle particle;
+
+        Cosmetic(Material icon, String name, Particle particle) {
+            this.icon = icon;
+            this.name = name;
+            this.particle = particle;
+        }
     }
 
     /** Marks an inventory we own so clicks in it are handled, not blocked generically. */
@@ -66,10 +94,32 @@ public final class LobbyHotbar implements Listener {
         @Override public Inventory getInventory() { return null; }
     }
 
+    /** Start the cosmetic particle task. Called once from the plugin's onEnable. */
+    public void start() {
+        plugin.getServer().getScheduler().runTaskTimer(plugin, this::tickCosmetics, 10L, 6L);
+    }
+
+    private void tickCosmetics() {
+        for (Player p : plugin.getServer().getOnlinePlayers()) {
+            Cosmetic c = activeCosmetic.get(p.getUniqueId());
+            if (c != null && c.particle != null) {
+                p.getWorld().spawnParticle(c.particle, p.getLocation().add(0, 0.15, 0),
+                        8, 0.3, 0.1, 0.3, 0.0);
+            }
+        }
+    }
+
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Player p = event.getPlayer();
         Bukkit.getScheduler().runTask(plugin, () -> giveHotbar(p)); // after inventory load
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        UUID uuid = event.getPlayer().getUniqueId();
+        playersHidden.remove(uuid);
+        activeCosmetic.remove(uuid);
     }
 
     @EventHandler
@@ -82,11 +132,11 @@ public final class LobbyHotbar implements Listener {
             return;
         }
         p.getInventory().clear();
-        p.getInventory().setItem(0, named(new ItemStack(Material.COMPASS), "§bModos de Jogo", "§7Clique para escolher um modo"));
-        p.getInventory().setItem(3, named(new ItemStack(Material.RED_BED), "§aLobbys", "§7Clique para trocar de lobby"));
+        p.getInventory().setItem(0, item(Material.COMPASS, "§bModos de Jogo", "§7Clique para escolher um modo"));
+        p.getInventory().setItem(3, item(Material.RED_BED, "§aLobbys", "§7Clique para trocar de lobby"));
         p.getInventory().setItem(4, profileHead(p));
         p.getInventory().setItem(7, hideToggleItem(p));
-        p.getInventory().setItem(8, named(new ItemStack(Material.NETHER_STAR), "§dCosméticos", "§7Em breve"));
+        p.getInventory().setItem(8, item(Material.NETHER_STAR, "§dCosméticos", "§7Personalize o seu visual"));
         p.getInventory().setHeldItemSlot(0);
     }
 
@@ -139,17 +189,54 @@ public final class LobbyHotbar implements Listener {
 
     private void openGames(Player p) {
         MenuHolder holder = new MenuHolder("games");
-        Inventory inv = Bukkit.createInventory(holder, 9, Component.text("Jogos"));
-        inv.setItem(4, named(new ItemStack(Material.FEATHER), "§aParkour", "§7Clique para jogar"));
+        Inventory inv = Bukkit.createInventory(holder, 27, Component.text("Modos de Jogo"));
+        border(inv, 27);
+        inv.setItem(13, item(Material.FEATHER, "§aParkour", "§7Teste a sua agilidade", "§eClique para jogar"));
         p.openInventory(inv);
     }
 
+    // ── cosmetics ──
+
     private void openCosmetics(Player p) {
         MenuHolder holder = new MenuHolder("cosmetics");
-        Inventory inv = Bukkit.createInventory(holder, 9, Component.text("Cosméticos"));
-        inv.setItem(4, named(new ItemStack(Material.BARRIER), "§cEm breve", "§7Ainda não disponível"));
+        Inventory inv = Bukkit.createInventory(holder, 27, Component.text("Cosméticos"));
+        border(inv, 27);
+        Cosmetic current = activeCosmetic.get(p.getUniqueId());
+        int slot = 10;
+        for (Cosmetic c : Cosmetic.values()) {
+            boolean selected = (current == null ? Cosmetic.NONE : current) == c;
+            List<String> lore = new ArrayList<>();
+            if (c == Cosmetic.NONE) {
+                lore.add("§7Desativa o cosmético atual");
+            } else {
+                lore.add("§7Partículas que seguem você");
+            }
+            lore.add(" ");
+            lore.add(selected ? "§a✔ Selecionado" : "§eClique para usar");
+            ItemStack it = item(c.icon, c.name, lore.toArray(new String[0]));
+            if (selected && c != Cosmetic.NONE) {
+                glow(it);
+            }
+            var meta = it.getItemMeta();
+            meta.getPersistentDataContainer().set(cosmeticKey, PersistentDataType.STRING, c.name());
+            it.setItemMeta(meta);
+            inv.setItem(slot++, it);
+        }
         p.openInventory(inv);
     }
+
+    private void selectCosmetic(Player p, Cosmetic c) {
+        if (c == Cosmetic.NONE) {
+            activeCosmetic.remove(p.getUniqueId());
+            p.sendActionBar(Component.text("Cosmético removido", NamedTextColor.GRAY));
+        } else {
+            activeCosmetic.put(p.getUniqueId(), c);
+            p.sendActionBar(MM.deserialize("<green>Cosmético ativado!"));
+        }
+        openCosmetics(p); // refresh selection state
+    }
+
+    // ── lobbys ──
 
     private void openLobbys(Player p) {
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
@@ -171,34 +258,46 @@ public final class LobbyHotbar implements Listener {
         if (!p.isOnline()) {
             return;
         }
-        int rows = Math.max(1, (lobbies.size() + 8) / 9);
-        int size = Math.min(rows * 9, 54);
+        List<Integer> slots = innerSlots(lobbies.size());
+        int size = ((slots.isEmpty() ? 1 : (slots.get(slots.size() - 1) / 9) + 1) + 1) * 9;
+        size = Math.max(27, Math.min(size, 54));
         MenuHolder holder = new MenuHolder("lobbys");
         Inventory inv = Bukkit.createInventory(holder, size, Component.text("Lobbys"));
+        border(inv, size);
+
         String current = crystal.config().serverId();
-        int slot = 0;
+        int i = 0;
         for (NetworkServer s : lobbies) {
-            if (slot >= inv.getSize()) {
+            if (i >= slots.size()) {
                 break;
             }
             boolean isCurrent = s.serverId().equals(current);
-            ItemStack item = new ItemStack(isCurrent ? Material.EMERALD_BLOCK : Material.GRASS_BLOCK);
-            var meta = item.getItemMeta();
-            meta.displayName(Component.text((isCurrent ? "§a» " : "§e") + s.serverId())
-                    .decoration(TextDecoration.ITALIC, false));
-            meta.lore(java.util.List.of(
-                    Component.text("§7Jogadores: §f" + s.onlinePlayers() + "/" + s.maxPlayers())
-                            .decoration(TextDecoration.ITALIC, false),
-                    Component.text(isCurrent ? "§7Você está aqui" : "§aClique para conectar")
-                            .decoration(TextDecoration.ITALIC, false)));
-            if (!isCurrent) {
+            boolean full = s.onlinePlayers() >= s.maxPlayers() && s.maxPlayers() > 0;
+
+            Material block = isCurrent ? Material.EMERALD_BLOCK
+                    : full ? Material.REDSTONE_BLOCK : Material.LIME_CONCRETE;
+            String title = (isCurrent ? "§a§l" : full ? "§c§l" : "§e§l") + s.serverId().toUpperCase();
+            String status = isCurrent ? "§a➜ Você está aqui"
+                    : full ? "§c✖ Servidor cheio" : "§a✔ Clique para conectar";
+
+            ItemStack item = item(block, title,
+                    "§8» RedeCrystal Lobby",
+                    " ",
+                    "§7Jogadores: §f" + s.onlinePlayers() + "§7/§f" + s.maxPlayers(),
+                    "§7Status: " + (full ? "§cCheio" : "§aDisponível"),
+                    " ",
+                    status);
+            if (isCurrent) {
+                glow(item);
+            } else if (!full) {
+                var meta = item.getItemMeta();
                 meta.getPersistentDataContainer().set(lobbyKey, PersistentDataType.STRING, s.serverId());
+                item.setItemMeta(meta);
             }
-            item.setItemMeta(meta);
-            inv.setItem(slot++, item);
+            inv.setItem(slots.get(i++), item);
         }
         if (lobbies.isEmpty()) {
-            inv.setItem(4, named(new ItemStack(Material.BARRIER), "§cNenhum lobby disponível", "§7Tente novamente"));
+            inv.setItem(13, item(Material.BARRIER, "§cNenhum lobby disponível", "§7Tente novamente em instantes"));
         }
         p.openInventory(inv);
     }
@@ -215,20 +314,39 @@ public final class LobbyHotbar implements Listener {
     }
 
     private void handleMenuClick(Player p, MenuHolder menu, ItemStack clicked) {
-        if ("games".equals(menu.type()) && clicked != null && clicked.getType() == Material.FEATHER) {
-            p.closeInventory();
-            p.performCommand("parkour");
+        if (clicked == null || clicked.getItemMeta() == null) {
             return;
         }
-        if ("lobbys".equals(menu.type()) && clicked != null && clicked.getItemMeta() != null) {
-            String target = clicked.getItemMeta().getPersistentDataContainer()
-                    .get(lobbyKey, PersistentDataType.STRING);
-            if (target != null) {
-                p.closeInventory();
-                connectTo(p, target);
+        switch (menu.type()) {
+            case "games" -> {
+                if (clicked.getType() == Material.FEATHER) {
+                    p.closeInventory();
+                    p.performCommand("parkour");
+                }
             }
+            case "lobbys" -> {
+                String target = clicked.getItemMeta().getPersistentDataContainer()
+                        .get(lobbyKey, PersistentDataType.STRING);
+                if (target != null) {
+                    p.closeInventory();
+                    connectTo(p, target);
+                }
+            }
+            case "cosmetics" -> {
+                String id = clicked.getItemMeta().getPersistentDataContainer()
+                        .get(cosmeticKey, PersistentDataType.STRING);
+                if (id != null) {
+                    try {
+                        selectCosmetic(p, Cosmetic.valueOf(id));
+                    } catch (IllegalArgumentException ignored) {
+                    }
+                }
+            }
+            default -> { }
         }
     }
+
+    // ── profile ──
 
     private void showProfile(Player p) {
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
@@ -248,29 +366,35 @@ public final class LobbyHotbar implements Listener {
             return;
         }
         MenuHolder holder = new MenuHolder("profile");
-        Inventory inv = Bukkit.createInventory(holder, 9, Component.text("Perfil"));
+        Inventory inv = Bukkit.createInventory(holder, 27, Component.text("Perfil"));
+        border(inv, 27);
+
+        Component cargo = resolveCargo(p);
+
         ItemStack head = new ItemStack(Material.PLAYER_HEAD);
         if (head.getItemMeta() instanceof SkullMeta skull) {
             skull.setOwningPlayer(p);
-
-            Component cargo = resolveCargo(p);
             skull.displayName(cargo.append(line(" <white>" + p.getName())));
-
             List<Component> lore = new ArrayList<>();
             lore.add(line("<gray>Cargo: ").append(cargo));
-            if (d != null) {
-                lore.add(line("<gray>Tempo online: <white>" + formatDuration(d.playSeconds())));
-                lore.add(line("<gray>Abates: <green>" + d.kills()
-                        + "   <gray>Mortes: <red>" + d.deaths()));
-                lore.add(line("<gray>Mensagens: <aqua>" + d.messagesSent()));
-                lore.add(line("<gray>Membro desde: <white>" + formatDate(d.createdAt())));
-            } else {
-                lore.add(line("<red>Perfil ainda não carregado."));
-            }
+            lore.add(Component.empty());
+            lore.add(line("<gray>Membro desde: <white>" + (d == null ? "-" : formatDate(d.createdAt()))));
             skull.lore(lore);
             head.setItemMeta(skull);
         }
-        inv.setItem(4, head);
+        inv.setItem(13, head);
+
+        if (d != null) {
+            inv.setItem(11, item(Material.CLOCK, "§bTempo Online",
+                    "§7Total jogado:", "§f" + formatDuration(d.playSeconds())));
+            inv.setItem(15, item(Material.DIAMOND_SWORD, "§cCombate",
+                    "§7Abates: §a" + d.kills(), "§7Mortes: §c" + d.deaths()));
+            inv.setItem(22, item(Material.WRITABLE_BOOK, "§eMensagens",
+                    "§7Enviadas na rede:", "§f" + d.messagesSent()));
+        } else {
+            inv.setItem(22, item(Material.BARRIER, "§cPerfil indisponível",
+                    "§7Tente novamente em instantes"));
+        }
         p.openInventory(inv);
     }
 
@@ -282,34 +406,7 @@ public final class LobbyHotbar implements Listener {
         return line(prefix);
     }
 
-    /** Parse a MiniMessage string into a non-italic lore/name component. */
-    private static Component line(String mini) {
-        return MM.deserialize(mini).decoration(TextDecoration.ITALIC, false);
-    }
-
-    /** Seconds → "Xd Yh Zm" (compact, drops leading zero units). */
-    private static String formatDuration(long seconds) {
-        long d = seconds / 86400;
-        long h = (seconds % 86400) / 3600;
-        long m = (seconds % 3600) / 60;
-        StringBuilder sb = new StringBuilder();
-        if (d > 0) sb.append(d).append("d ");
-        if (h > 0 || d > 0) sb.append(h).append("h ");
-        sb.append(m).append("m");
-        return sb.toString().trim();
-    }
-
-    /** ISO timestamp → dd/MM/yyyy (falls back to the raw string on parse failure). */
-    private static String formatDate(String iso) {
-        if (iso == null || iso.isBlank()) {
-            return "-";
-        }
-        try {
-            return OffsetDateTime.parse(iso).format(DATE_FMT);
-        } catch (Exception e) {
-            return iso.length() >= 10 ? iso.substring(0, 10) : iso;
-        }
-    }
+    // ── hide players ──
 
     private void toggleHide(Player p) {
         boolean nowHidden = !playersHidden.getOrDefault(p.getUniqueId(), false);
@@ -333,25 +430,94 @@ public final class LobbyHotbar implements Listener {
 
     private ItemStack hideToggleItem(Player p) {
         boolean hidden = playersHidden.getOrDefault(p.getUniqueId(), false);
-        return named(new ItemStack(hidden ? Material.GRAY_DYE : Material.LIME_DYE),
-                hidden ? "§7Jogadores: Escondidos" : "§aJogadores: Visíveis", "§7Clique para alternar");
+        return item(hidden ? Material.GRAY_DYE : Material.LIME_DYE,
+                hidden ? "§7Jogadores: §cEscondidos" : "§aJogadores: §aVisíveis",
+                "§7Clique para alternar");
     }
 
     private ItemStack profileHead(Player p) {
         ItemStack head = new ItemStack(Material.PLAYER_HEAD);
         if (head.getItemMeta() instanceof SkullMeta skull) {
             skull.setOwningPlayer(p);
-            skull.displayName(Component.text("§aPerfil").decoration(TextDecoration.ITALIC, false));
+            skull.displayName(Component.text("§aMeu Perfil").decoration(TextDecoration.ITALIC, false));
+            skull.lore(List.of(Component.text("§7Veja as suas estatísticas").decoration(TextDecoration.ITALIC, false)));
             head.setItemMeta(skull);
         }
         return head;
     }
 
-    private ItemStack named(ItemStack item, String name, String lore) {
-        var meta = item.getItemMeta();
+    /** Build an item with a legacy-coloured name and multi-line lore. */
+    private ItemStack item(Material material, String name, String... lore) {
+        ItemStack it = new ItemStack(material);
+        var meta = it.getItemMeta();
         meta.displayName(Component.text(name).decoration(TextDecoration.ITALIC, false));
-        meta.lore(java.util.List.of(Component.text(lore).decoration(TextDecoration.ITALIC, false)));
-        item.setItemMeta(meta);
-        return item;
+        if (lore.length > 0) {
+            List<Component> loreLines = new ArrayList<>();
+            for (String l : lore) {
+                loreLines.add(Component.text(l).decoration(TextDecoration.ITALIC, false));
+            }
+            meta.lore(loreLines);
+        }
+        it.setItemMeta(meta);
+        return it;
+    }
+
+    /** Add a subtle enchant glow (hidden enchant text). */
+    private void glow(ItemStack it) {
+        var meta = it.getItemMeta();
+        meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+        meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
+        it.setItemMeta(meta);
+    }
+
+    /** Fill the border (edges) of a chest inventory with purple glass panes. */
+    private void border(Inventory inv, int size) {
+        ItemStack pane = item(Material.PURPLE_STAINED_GLASS_PANE, "§r");
+        int rows = size / 9;
+        for (int i = 0; i < size; i++) {
+            int col = i % 9;
+            int row = i / 9;
+            if (row == 0 || row == rows - 1 || col == 0 || col == 8) {
+                inv.setItem(i, pane);
+            }
+        }
+    }
+
+    /** Inner (non-border) slots for as many lobbies as needed, 7 per content row. */
+    private List<Integer> innerSlots(int count) {
+        int rows = Math.max(1, (int) Math.ceil(count / 7.0));
+        List<Integer> slots = new ArrayList<>();
+        for (int r = 0; r < rows; r++) {
+            for (int c = 1; c <= 7; c++) {
+                slots.add((r + 1) * 9 + c);
+            }
+        }
+        return slots;
+    }
+
+    private static Component line(String mini) {
+        return MM.deserialize(mini).decoration(TextDecoration.ITALIC, false);
+    }
+
+    private static String formatDuration(long seconds) {
+        long d = seconds / 86400;
+        long h = (seconds % 86400) / 3600;
+        long m = (seconds % 3600) / 60;
+        StringBuilder sb = new StringBuilder();
+        if (d > 0) sb.append(d).append("d ");
+        if (h > 0 || d > 0) sb.append(h).append("h ");
+        sb.append(m).append("m");
+        return sb.toString().trim();
+    }
+
+    private static String formatDate(String iso) {
+        if (iso == null || iso.isBlank()) {
+            return "-";
+        }
+        try {
+            return OffsetDateTime.parse(iso).format(DATE_FMT);
+        } catch (Exception e) {
+            return iso.length() >= 10 ? iso.substring(0, 10) : iso;
+        }
     }
 }
