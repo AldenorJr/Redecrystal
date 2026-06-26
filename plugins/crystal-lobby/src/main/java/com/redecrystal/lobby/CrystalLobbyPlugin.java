@@ -63,6 +63,9 @@ public final class CrystalLobbyPlugin extends JavaPlugin implements Listener {
         getServer().getMessenger().registerOutgoingPluginChannel(this, "BungeeCord");
         getServer().getPluginManager().registerEvents(new LobbyHotbar(this, crystal), this);
         getServer().getPluginManager().registerEvents(new LobbyProtection(this), this);
+        LobbyScoreboard scoreboard = new LobbyScoreboard(this, crystal);
+        getServer().getPluginManager().registerEvents(scoreboard, this);
+        scoreboard.start();
         getLogger().info("CrystalLobby enabled.");
     }
 
