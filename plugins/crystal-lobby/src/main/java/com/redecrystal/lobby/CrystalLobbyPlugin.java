@@ -120,6 +120,10 @@ public final class CrystalLobbyPlugin extends JavaPlugin implements Listener {
         player.setFoodLevel(20);
         player.setSaturation(20f);
         player.setFireTicks(0);
+        if (player.hasPermission("crystal.fly")) {
+            player.setAllowFlight(true);
+            player.setFlying(true);
+        }
         sendToSpawn(player);
     }
 

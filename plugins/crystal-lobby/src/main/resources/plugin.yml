@@ -12,3 +12,6 @@ permissions:
   crystal.lobby.admin:
     description: Manage the lobby (set spawn)
     default: op
+  crystal.fly:
+    description: Fly freely around the lobby and login
+    default: op
