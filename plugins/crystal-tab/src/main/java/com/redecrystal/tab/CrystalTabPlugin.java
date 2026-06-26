@@ -30,7 +30,7 @@ public final class CrystalTabPlugin extends JavaPlugin implements Listener {
     private static final String DEFAULT_MAINT_HEADER =
             "\n<red><bold>⚠ EM MANUTENÇÃO ⚠</bold></red>\n<#c9a6ff>Estamos melhorando a rede para você\n";
     private static final String DEFAULT_MAINT_FOOTER =
-            "\n<gray>Acesso liberado para a equipe   <dark_gray>|</dark_gray>   <#c9a6ff>play.redecrystal.net\n";
+            "\n<gray>Acesso liberado para a equipe   <dark_gray>|</dark_gray>   <#b14aed>redecrystal.com.br\n";
 
     private CrystalCore crystal;
     private TabRenderer renderer;
@@ -91,7 +91,7 @@ public final class CrystalTabPlugin extends JavaPlugin implements Listener {
 
     private void applyConfig(RemoteConfig cfg) {
         this.header = cfg.string("header", "<aqua>RedeCrystal");
-        this.footer = cfg.string("footer", "<gray>play.redecrystal.net");
+        this.footer = cfg.string("footer", "<gray>redecrystal.com.br");
         this.maintenanceHeader = cfg.string("maintenanceHeader", DEFAULT_MAINT_HEADER);
         this.maintenanceFooter = cfg.string("maintenanceFooter", DEFAULT_MAINT_FOOTER);
         this.prefixInTab = cfg.bool("prefixInTab", true);

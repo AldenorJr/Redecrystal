@@ -12,7 +12,7 @@ WHERE config_key = 'global';
 UPDATE network_configs
 SET config = config || '{
       "maintenanceHeader": "\n<red><bold>⚠ EM MANUTENÇÃO ⚠</bold></red>\n<#c9a6ff>Estamos melhorando a rede para você\n",
-      "maintenanceFooter": "\n<gray>Acesso liberado para a equipe   <dark_gray>|</dark_gray>   <#c9a6ff>play.redecrystal.net\n"
+      "maintenanceFooter": "\n<gray>Acesso liberado para a equipe   <dark_gray>|</dark_gray>   <#b14aed>redecrystal.com.br\n"
    }'::jsonb,
     version = version + 1,
     updated_at = now()
