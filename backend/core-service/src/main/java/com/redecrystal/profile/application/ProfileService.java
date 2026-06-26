@@ -58,6 +58,26 @@ public class ProfileService {
         return profile;
     }
 
+    /** Apply additive combat deltas (kills/deaths) and persist. */
+    @Transactional
+    public ProfileEntity addCombat(UUID uuid, long kills, long deaths) {
+        ProfileEntity profile = get(uuid);
+        profile.addCombat(kills, deaths);
+        profile = repository.save(profile);
+        cache(profile);
+        return profile;
+    }
+
+    /** Increment the lifetime message counter and persist. */
+    @Transactional
+    public ProfileEntity addMessages(UUID uuid, long delta) {
+        ProfileEntity profile = get(uuid);
+        profile.addMessages(delta);
+        profile = repository.save(profile);
+        cache(profile);
+        return profile;
+    }
+
     private void cache(ProfileEntity p) {
         try {
             redis.opsForValue().set(CACHE_PREFIX + p.getPlayerUuid(),
@@ -68,7 +88,10 @@ public class ProfileService {
                             "level", p.getLevel(),
                             "experience", p.getExperience(),
                             "coins", p.getCoins(),
-                            "playSeconds", p.getPlaySeconds())));
+                            "playSeconds", p.getPlaySeconds(),
+                            "kills", p.getKills(),
+                            "deaths", p.getDeaths(),
+                            "messagesSent", p.getMessagesSent())));
         } catch (Exception e) {
             log.warn("Failed to cache profile {}", p.getPlayerUuid(), e);
         }

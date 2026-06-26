@@ -8,5 +8,9 @@ public record ProfileData(
         int level,
         long experience,
         long coins,
-        long playSeconds) {
+        long playSeconds,
+        long kills,
+        long deaths,
+        long messagesSent,
+        String createdAt) {
 }

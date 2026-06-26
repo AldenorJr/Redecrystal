@@ -30,6 +30,14 @@ spring:
           uri: lb://core-service
           predicates:
             - Path=/api/parkour/**
+        - id: core-chat
+          uri: lb://core-service
+          predicates:
+            - Path=/api/chat/**
+        - id: core-activity
+          uri: lb://core-service
+          predicates:
+            - Path=/api/activity/**
       httpclient:
         connect-timeout: 2000
         response-timeout: 5s

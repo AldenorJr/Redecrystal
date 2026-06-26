@@ -45,6 +45,9 @@ public final class CrystalLobbyPlugin extends JavaPlugin implements Listener {
 
         RemoteConfig cfg = crystal.configProvider().get(CONFIG_KEY);
         applyConfig(cfg);
+        // Cache the cargo/role config so the profile GUI resolves tags without
+        // blocking the main thread on a backend call.
+        crystal.configProvider().preload("chat");
         getLogger().info("Lobby config v" + cfg.version() + ": motd='" + motd + "', spawn=" + describe(spawn));
 
         crystal.registerThisServer(cfg.integer("maxPlayers", 100));

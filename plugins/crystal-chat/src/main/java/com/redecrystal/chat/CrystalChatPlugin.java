@@ -105,6 +105,18 @@ public final class CrystalChatPlugin extends JavaPlugin implements Listener {
                 "server", crystal.config().serverId(),
                 "prefix", role == null ? "" : role.prefix(),
                 "nameColor", role == null ? "" : role.nameColor()));
+
+        // Persist to the backend chat history (+ message counter), off-thread.
+        final String uuid = event.getPlayer().getUniqueId().toString();
+        final String name = event.getPlayer().getName();
+        final String server = crystal.config().serverId();
+        getServer().getScheduler().runTaskAsynchronously(this, () -> {
+            try {
+                crystal.backend().recordMessage(uuid, name, server, "global", null, clean);
+            } catch (Exception e) {
+                getLogger().warning("recordMessage (global) falhou: " + e.getMessage());
+            }
+        });
     }
 
     private void broadcast(String server, String player, String message, String prefix, String nameColor) {
@@ -220,6 +232,12 @@ public final class CrystalChatPlugin extends JavaPlugin implements Listener {
                     "fromUuid", from.getUniqueId().toString(),
                     "targetUuid", targetUuid.toString(),
                     "message", message));
+            try {
+                crystal.backend().recordMessage(from.getUniqueId().toString(), from.getName(),
+                        crystal.config().serverId(), "tell", targetName, message);
+            } catch (Exception e) {
+                getLogger().warning("recordMessage (tell) falhou: " + e.getMessage());
+            }
             from.sendMessage(Component.text("você → " + targetName + ": ", NamedTextColor.DARK_GRAY)
                     .append(Component.text(message, NamedTextColor.GRAY)));
             lastConversation.put(from.getUniqueId(), targetName);

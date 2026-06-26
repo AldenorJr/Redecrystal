@@ -1,11 +1,15 @@
 package com.redecrystal.lobby;
 
 import com.redecrystal.core.CrystalCore;
+import com.redecrystal.core.cargo.CargoResolver;
 import com.redecrystal.core.http.NetworkServer;
 import com.redecrystal.core.http.ProfileData;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +20,7 @@ import org.bukkit.persistence.PersistentDataType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -41,6 +46,9 @@ import org.bukkit.plugin.java.JavaPlugin;
  * entry simply runs {@code /parkour}, keeping this plugin decoupled from it.
  */
 public final class LobbyHotbar implements Listener {
+
+    private static final MiniMessage MM = MiniMessage.miniMessage();
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     private final JavaPlugin plugin;
     private final CrystalCore crystal;
@@ -244,20 +252,63 @@ public final class LobbyHotbar implements Listener {
         ItemStack head = new ItemStack(Material.PLAYER_HEAD);
         if (head.getItemMeta() instanceof SkullMeta skull) {
             skull.setOwningPlayer(p);
-            skull.displayName(Component.text("§a" + p.getName()).decoration(TextDecoration.ITALIC, false));
+
+            Component cargo = resolveCargo(p);
+            skull.displayName(cargo.append(line(" <white>" + p.getName())));
+
+            List<Component> lore = new ArrayList<>();
+            lore.add(line("<gray>Cargo: ").append(cargo));
             if (d != null) {
-                skull.lore(java.util.List.of(
-                        Component.text("§7Rank: §6" + d.rank()).decoration(TextDecoration.ITALIC, false),
-                        Component.text("§7Level: §b" + d.level()).decoration(TextDecoration.ITALIC, false),
-                        Component.text("§7Coins: §e" + d.coins()).decoration(TextDecoration.ITALIC, false)));
+                lore.add(line("<gray>Tempo online: <white>" + formatDuration(d.playSeconds())));
+                lore.add(line("<gray>Abates: <green>" + d.kills()
+                        + "   <gray>Mortes: <red>" + d.deaths()));
+                lore.add(line("<gray>Mensagens: <aqua>" + d.messagesSent()));
+                lore.add(line("<gray>Membro desde: <white>" + formatDate(d.createdAt())));
             } else {
-                skull.lore(java.util.List.of(
-                        Component.text("§cPerfil ainda não carregado.").decoration(TextDecoration.ITALIC, false)));
+                lore.add(line("<red>Perfil ainda não carregado."));
             }
+            skull.lore(lore);
             head.setItemMeta(skull);
         }
         inv.setItem(4, head);
         p.openInventory(inv);
+    }
+
+    /** The player's cargo tag (e.g. [CEO]) as a Component, defaulting to [MEMBRO]. */
+    private Component resolveCargo(Player p) {
+        CargoResolver.Cargo c = CargoResolver.resolve(
+                crystal.configProvider().get("chat"), p::hasPermission);
+        String prefix = c == null ? "<gray>[MEMBRO]" : c.prefix();
+        return line(prefix);
+    }
+
+    /** Parse a MiniMessage string into a non-italic lore/name component. */
+    private static Component line(String mini) {
+        return MM.deserialize(mini).decoration(TextDecoration.ITALIC, false);
+    }
+
+    /** Seconds → "Xd Yh Zm" (compact, drops leading zero units). */
+    private static String formatDuration(long seconds) {
+        long d = seconds / 86400;
+        long h = (seconds % 86400) / 3600;
+        long m = (seconds % 3600) / 60;
+        StringBuilder sb = new StringBuilder();
+        if (d > 0) sb.append(d).append("d ");
+        if (h > 0 || d > 0) sb.append(h).append("h ");
+        sb.append(m).append("m");
+        return sb.toString().trim();
+    }
+
+    /** ISO timestamp → dd/MM/yyyy (falls back to the raw string on parse failure). */
+    private static String formatDate(String iso) {
+        if (iso == null || iso.isBlank()) {
+            return "-";
+        }
+        try {
+            return OffsetDateTime.parse(iso).format(DATE_FMT);
+        } catch (Exception e) {
+            return iso.length() >= 10 ? iso.substring(0, 10) : iso;
+        }
     }
 
     private void toggleHide(Player p) {
