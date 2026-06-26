@@ -1,10 +1,18 @@
 package com.redecrystal.lobby;
 
 import com.redecrystal.core.CrystalCore;
+import com.redecrystal.core.http.NetworkServer;
 import com.redecrystal.core.http.ProfileData;
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import org.bukkit.NamespacedKey;
+import org.bukkit.persistence.PersistentDataType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -37,10 +45,12 @@ public final class LobbyHotbar implements Listener {
     private final JavaPlugin plugin;
     private final CrystalCore crystal;
     private final Map<UUID, Boolean> playersHidden = new ConcurrentHashMap<>();
+    private final NamespacedKey lobbyKey;
 
     public LobbyHotbar(JavaPlugin plugin, CrystalCore crystal) {
         this.plugin = plugin;
         this.crystal = crystal;
+        this.lobbyKey = new NamespacedKey(plugin, "lobby-id");
     }
 
     /** Marks an inventory we own so clicks in it are handled, not blocked generically. */
@@ -64,7 +74,8 @@ public final class LobbyHotbar implements Listener {
             return;
         }
         p.getInventory().clear();
-        p.getInventory().setItem(0, named(new ItemStack(Material.COMPASS), "§bJogos", "§7Clique para escolher um jogo"));
+        p.getInventory().setItem(0, named(new ItemStack(Material.COMPASS), "§bModos de Jogo", "§7Clique para escolher um modo"));
+        p.getInventory().setItem(3, named(new ItemStack(Material.RED_BED), "§aLobbys", "§7Clique para trocar de lobby"));
         p.getInventory().setItem(4, profileHead(p));
         p.getInventory().setItem(7, hideToggleItem(p));
         p.getInventory().setItem(8, named(new ItemStack(Material.NETHER_STAR), "§dCosméticos", "§7Em breve"));
@@ -110,6 +121,7 @@ public final class LobbyHotbar implements Listener {
         Player p = event.getPlayer();
         switch (event.getItem().getType()) {
             case COMPASS -> { event.setCancelled(true); openGames(p); }
+            case RED_BED -> { event.setCancelled(true); openLobbys(p); }
             case PLAYER_HEAD -> { event.setCancelled(true); showProfile(p); }
             case LIME_DYE, GRAY_DYE -> { event.setCancelled(true); toggleHide(p); }
             case NETHER_STAR -> { event.setCancelled(true); openCosmetics(p); }
@@ -131,10 +143,82 @@ public final class LobbyHotbar implements Listener {
         p.openInventory(inv);
     }
 
+    private void openLobbys(Player p) {
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            List<NetworkServer> fetched;
+            try {
+                fetched = crystal.backend().listServers("lobby");
+            } catch (Exception e) {
+                fetched = List.of();
+            }
+            final List<NetworkServer> online = fetched.stream()
+                    .filter(NetworkServer::isOnline)
+                    .sorted(Comparator.comparing(NetworkServer::serverId))
+                    .toList();
+            Bukkit.getScheduler().runTask(plugin, () -> openLobbyMenu(p, online));
+        });
+    }
+
+    private void openLobbyMenu(Player p, List<NetworkServer> lobbies) {
+        if (!p.isOnline()) {
+            return;
+        }
+        int rows = Math.max(1, (lobbies.size() + 8) / 9);
+        int size = Math.min(rows * 9, 54);
+        MenuHolder holder = new MenuHolder("lobbys");
+        Inventory inv = Bukkit.createInventory(holder, size, Component.text("Lobbys"));
+        String current = crystal.config().serverId();
+        int slot = 0;
+        for (NetworkServer s : lobbies) {
+            if (slot >= inv.getSize()) {
+                break;
+            }
+            boolean isCurrent = s.serverId().equals(current);
+            ItemStack item = new ItemStack(isCurrent ? Material.EMERALD_BLOCK : Material.GRASS_BLOCK);
+            var meta = item.getItemMeta();
+            meta.displayName(Component.text((isCurrent ? "§a» " : "§e") + s.serverId())
+                    .decoration(TextDecoration.ITALIC, false));
+            meta.lore(java.util.List.of(
+                    Component.text("§7Jogadores: §f" + s.onlinePlayers() + "/" + s.maxPlayers())
+                            .decoration(TextDecoration.ITALIC, false),
+                    Component.text(isCurrent ? "§7Você está aqui" : "§aClique para conectar")
+                            .decoration(TextDecoration.ITALIC, false)));
+            if (!isCurrent) {
+                meta.getPersistentDataContainer().set(lobbyKey, PersistentDataType.STRING, s.serverId());
+            }
+            item.setItemMeta(meta);
+            inv.setItem(slot++, item);
+        }
+        if (lobbies.isEmpty()) {
+            inv.setItem(4, named(new ItemStack(Material.BARRIER), "§cNenhum lobby disponível", "§7Tente novamente"));
+        }
+        p.openInventory(inv);
+    }
+
+    private void connectTo(Player p, String server) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (DataOutputStream dos = new DataOutputStream(out)) {
+            dos.writeUTF("Connect");
+            dos.writeUTF(server);
+        } catch (IOException e) {
+            return;
+        }
+        p.sendPluginMessage(plugin, "BungeeCord", out.toByteArray());
+    }
+
     private void handleMenuClick(Player p, MenuHolder menu, ItemStack clicked) {
         if ("games".equals(menu.type()) && clicked != null && clicked.getType() == Material.FEATHER) {
             p.closeInventory();
             p.performCommand("parkour");
+            return;
+        }
+        if ("lobbys".equals(menu.type()) && clicked != null && clicked.getItemMeta() != null) {
+            String target = clicked.getItemMeta().getPersistentDataContainer()
+                    .get(lobbyKey, PersistentDataType.STRING);
+            if (target != null) {
+                p.closeInventory();
+                connectTo(p, target);
+            }
         }
     }
 
