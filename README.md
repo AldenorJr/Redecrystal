@@ -196,6 +196,14 @@ Mandatory metrics and where they come from:
 
 ## Lobby features (parkour, hotbar, /tell) + worlds
 
+> **Convenção de UX — prefira sempre o menu GUI.** Toda interação do jogador deve,
+> por padrão, acontecer através de menus GUI (inventários clicáveis), e não por
+> comandos de chat. Os comandos existem como atalho/fallback (e para
+> administração), mas o caminho principal exposto ao jogador é sempre o GUI:
+> a hotbar abre o seletor de jogos em GUI, o perfil em GUI, etc. Ao adicionar
+> uma nova feature de jogador, comece pelo menu GUI e só exponha comando se
+> realmente for necessário.
+
 - **crystal-parkour** — in-lobby parkour with a course configured live via admin
   commands (`/parkour setstart|addcheckpoint|setfinish`, stored in the central
   `parkour` config, hot-reloaded) and a best-time leaderboard (`/parkour top`,
