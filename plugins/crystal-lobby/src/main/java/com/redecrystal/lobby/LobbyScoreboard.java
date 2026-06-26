@@ -29,7 +29,7 @@ public final class LobbyScoreboard implements Listener {
 
     private static final MiniMessage MM = MiniMessage.miniMessage();
     private static final String TITLE = "<gradient:#b14aed:#8e2de2><bold>REDECRYSTAL</bold></gradient>";
-    private static final int LINES = 8;
+    private static final int LINES = 7;
 
     private final JavaPlugin plugin;
     private final CrystalCore crystal;
@@ -97,7 +97,6 @@ public final class LobbyScoreboard implements Listener {
 
         List<Component> l = new ArrayList<>();
         l.add(Component.empty());
-        l.add(mm("<gray>Jogador: <white>" + p.getName()));
         l.add(mm("<gray>Cargo: ").append(mm(cargoMini)));
         l.add(Component.empty());
         l.add(mm("<gray>Online: <#b14aed>" + online));
