@@ -25,6 +25,12 @@ public final class CrystalTabPlugin extends JavaPlugin implements Listener {
 
     private static final String CONFIG_KEY = "tab";
     private static final String CHAT_CONFIG_KEY = "chat";
+    private static final String GLOBAL_CONFIG_KEY = "global";
+
+    private static final String DEFAULT_MAINT_HEADER =
+            "\n<red><bold>⚠ EM MANUTENÇÃO ⚠</bold></red>\n<#c9a6ff>Estamos melhorando a rede para você\n";
+    private static final String DEFAULT_MAINT_FOOTER =
+            "\n<gray>Acesso liberado para a equipe   <dark_gray>|</dark_gray>   <#c9a6ff>play.redecrystal.net\n";
 
     private CrystalCore crystal;
     private TabRenderer renderer;
@@ -32,6 +38,9 @@ public final class CrystalTabPlugin extends JavaPlugin implements Listener {
 
     private volatile String header = "";
     private volatile String footer = "";
+    private volatile String maintenanceHeader = DEFAULT_MAINT_HEADER;
+    private volatile String maintenanceFooter = DEFAULT_MAINT_FOOTER;
+    private volatile boolean maintenance = false;
     private volatile boolean prefixInTab = true;
     private volatile int maxPlayers = 500;
     private volatile long refreshTicks = 40;
@@ -60,6 +69,11 @@ public final class CrystalTabPlugin extends JavaPlugin implements Listener {
         applyRoles(crystal.configProvider().get(CHAT_CONFIG_KEY));
         crystal.configProvider().onChange(CHAT_CONFIG_KEY, this::applyRoles);
 
+        crystal.configProvider().preload(GLOBAL_CONFIG_KEY);
+        this.maintenance = crystal.configProvider().get(GLOBAL_CONFIG_KEY).bool("maintenance", false);
+        crystal.configProvider().onChange(GLOBAL_CONFIG_KEY,
+                cfg -> this.maintenance = cfg.bool("maintenance", false));
+
         getServer().getPluginManager().registerEvents(this, this);
         reschedule();
         getLogger().info("CrystalTab enabled.");
@@ -78,6 +92,8 @@ public final class CrystalTabPlugin extends JavaPlugin implements Listener {
     private void applyConfig(RemoteConfig cfg) {
         this.header = cfg.string("header", "<aqua>RedeCrystal");
         this.footer = cfg.string("footer", "<gray>play.redecrystal.net");
+        this.maintenanceHeader = cfg.string("maintenanceHeader", DEFAULT_MAINT_HEADER);
+        this.maintenanceFooter = cfg.string("maintenanceFooter", DEFAULT_MAINT_FOOTER);
         this.prefixInTab = cfg.bool("prefixInTab", true);
         this.maxPlayers = cfg.integer("maxPlayers", 500);
         this.refreshTicks = cfg.value("refreshTicks") instanceof Number n ? n.longValue() : 40;
@@ -141,9 +157,11 @@ public final class CrystalTabPlugin extends JavaPlugin implements Listener {
     }
 
     private void renderTab(Player player, int online) {
+        String h = maintenance ? maintenanceHeader : header;
+        String f = maintenance ? maintenanceFooter : footer;
         Role role = resolveRole(player);
         String prefix = role == null ? "" : role.prefix();
         String nameColor = role == null ? "" : role.nameColor();
-        renderer.apply(player, header, footer, online, maxPlayers, prefixInTab, prefix, nameColor);
+        renderer.apply(player, h, f, online, maxPlayers, prefixInTab, prefix, nameColor);
     }
 }
