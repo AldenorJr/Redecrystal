@@ -1,20 +1,21 @@
 # ──────────────────────────────────────────────────────────────────────────
-# RedeCrystal — backend microservices stack.
-# Data plane (Postgres, Redis, Kafka, Kafka UI) + Eureka registry + API Gateway
-# + core-service. The gateway is the ONLY published backend entry point and the
-# only component that authenticates requests.
+# RedeCrystal — backend microservices + Minecraft network stack.
 #
-#   cp .env.example .env && docker compose up -d
+# Deployment/secret configuration lives in configuration/environment (loaded via
+# `env_file`); pick a template first:
+#   cp configuration/environment.release.example configuration/environment
+#   cp .env.example .env            # published host ports (compose interpolation)
+#   docker compose up -d
+#
+# Only service-intrinsic settings (SERVER_ID, broker config, memory, world gen)
+# stay inline below — everything environment-specific is in configuration/.
 # ──────────────────────────────────────────────────────────────────────────
 name: redecrystal
 
 services:
   postgres:
     image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-redecrystal}
-      POSTGRES_USER: ${POSTGRES_USER:-crystal}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-crystal}
+    env_file: ./configuration/environment
     ports:
       - "${POSTGRES_PORT:-55432}:5432"
     volumes:
@@ -44,6 +45,7 @@ services:
     image: apache/kafka:3.8.0
     ports:
       - "29092:29092"  # host access
+    # Broker configuration is intrinsic to this service (not environment config).
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -66,12 +68,11 @@ services:
 
   kafka-init:
     image: apache/kafka:3.8.0
+    env_file: ./configuration/environment
     depends_on:
       kafka:
         condition: service_healthy
     entrypoint: ["/bin/bash", "/scripts/create-topics.sh"]
-    environment:
-      KAFKA_BROKERS: kafka:9092
     volumes:
       - ./infra/kafka:/scripts:ro
     restart: "no"
@@ -111,6 +112,7 @@ services:
       context: ./backend
       args:
         MODULE: core-service
+    env_file: ./configuration/environment
     depends_on:
       postgres:
         condition: service_healthy
@@ -122,16 +124,8 @@ services:
         condition: service_healthy
     environment:
       SERVER_PORT: 8081
-      POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       CORE_DB: core_db
-      POSTGRES_USER: ${POSTGRES_USER:-crystal}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-crystal}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      KAFKA_BROKERS: kafka:9092
-      EUREKA_URL: http://eureka-server:8761/eureka/
-      EUREKA_PREFER_IP: "true"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health || exit 1"]
       interval: 10s
@@ -145,6 +139,7 @@ services:
       context: ./backend
       args:
         MODULE: api-gateway
+    env_file: ./configuration/environment
     depends_on:
       eureka-server:
         condition: service_healthy
@@ -154,9 +149,6 @@ services:
       - "${GATEWAY_PORT:-8080}:8080"
     environment:
       SERVER_PORT: 8080
-      EUREKA_URL: http://eureka-server:8761/eureka/
-      EUREKA_PREFER_IP: "true"
-      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:-change-me-dev-service-token}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health || exit 1"]
       interval: 10s
@@ -167,6 +159,7 @@ services:
   # ── Minecraft: Velocity proxy (single entry point for players) ──
   proxy-01:
     image: itzg/mc-proxy:java21
+    env_file: ./configuration/environment
     depends_on:
       api-gateway:
         condition: service_healthy
@@ -176,12 +169,6 @@ services:
         condition: service_healthy
     environment:
       TYPE: VELOCITY
-      # Crystal SDK bootstrap
-      BACKEND_URL: http://api-gateway:8080
-      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:-change-me-dev-service-token}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      KAFKA_BROKERS: kafka:9092
       SERVER_ID: proxy-01
       SERVER_TYPE: proxy
       SERVER_HOST: proxy-01
@@ -198,6 +185,7 @@ services:
   # ── Minecraft: login server (Paper) ──
   login-01:
     image: itzg/minecraft-server:java21
+    env_file: ./configuration/environment
     depends_on:
       api-gateway:
         condition: service_healthy
@@ -206,20 +194,13 @@ services:
       kafka:
         condition: service_healthy
     environment:
-      EULA: "TRUE"
       TYPE: PAPER
       VERSION: "1.21.1"
-      ONLINE_MODE: "FALSE"
       MEMORY: 1G
       LEVEL_TYPE: FLAT
       GENERATOR_SETTINGS: '{"biome":"minecraft:the_void","layers":[{"block":"minecraft:air","height":1}]}'
       CRYSTAL_WORLD_SCHEMATIC: /schematics/redhouseterrian.schem
       CRYSTAL_WORLD_PASTE: "0,64,0"
-      BACKEND_URL: http://api-gateway:8080
-      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:-change-me-dev-service-token}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      KAFKA_BROKERS: kafka:9092
       SERVER_ID: login-01
       SERVER_TYPE: login
       SERVER_HOST: login-01
@@ -237,6 +218,7 @@ services:
   #    them via the registry — no proxy config change to add or remove one. ──
   lobby-01:
     image: itzg/minecraft-server:java21
+    env_file: ./configuration/environment
     depends_on: &mc-deps
       api-gateway:
         condition: service_healthy
@@ -245,10 +227,8 @@ services:
       kafka:
         condition: service_healthy
     environment: &lobby-env
-      EULA: "TRUE"
       TYPE: PAPER
       VERSION: "1.21.1"
-      ONLINE_MODE: "FALSE"
       MEMORY: 1536M
       # Void world — clean canvas for the pasted hub schematic. Flat+void is
       # deterministic, so every lobby is identical (one parkour course fits all).
@@ -256,19 +236,6 @@ services:
       GENERATOR_SETTINGS: '{"biome":"minecraft:the_void","layers":[{"block":"minecraft:air","height":1}]}'
       CRYSTAL_WORLD_SCHEMATIC: /schematics/hub-lobby-medieval.schematic
       CRYSTAL_WORLD_PASTE: "0,64,0"
-      LUCKPERMS_STORAGE_METHOD: postgresql
-      LUCKPERMS_DATA_ADDRESS: postgres:5432
-      LUCKPERMS_DATA_DATABASE: luckperms_db
-      LUCKPERMS_DATA_USERNAME: ${POSTGRES_USER:-crystal}
-      LUCKPERMS_DATA_PASSWORD: ${POSTGRES_PASSWORD:-crystal}
-      LUCKPERMS_MESSAGING_SERVICE: redis
-      LUCKPERMS_REDIS_ENABLED: "true"
-      LUCKPERMS_REDIS_ADDRESS: redis:6379
-      BACKEND_URL: http://api-gateway:8080
-      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:-change-me-dev-service-token}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      KAFKA_BROKERS: kafka:9092
       SERVER_ID: lobby-01
       SERVER_TYPE: lobby
       SERVER_HOST: lobby-01
@@ -289,6 +256,7 @@ services:
 
   lobby-02:
     image: itzg/minecraft-server:java21
+    env_file: ./configuration/environment
     depends_on: *mc-deps
     environment:
       <<: *lobby-env
@@ -310,6 +278,7 @@ services:
 
   lobby-03:
     image: itzg/minecraft-server:java21
+    env_file: ./configuration/environment
     depends_on: *mc-deps
     environment:
       <<: *lobby-env
@@ -349,11 +318,10 @@ services:
 
   grafana:
     image: grafana/grafana:latest
+    env_file: ./configuration/environment
     depends_on:
       - prometheus
     environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     volumes:

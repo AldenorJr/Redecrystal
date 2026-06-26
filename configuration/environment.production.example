@@ -1,0 +1,48 @@
+# ──────────────────────────────────────────────────────────────────────────
+# RedeCrystal — PRODUCTION environment (container configuration).
+#
+# Copy to `configuration/environment` and replace every __CHANGE_ME__ value:
+#     cp configuration/environment.production.example configuration/environment
+#
+# Use strong, unique secrets. If you run Postgres/Redis/Kafka as managed/external
+# services, point the *_HOST / *_ADDRESS / *_BROKERS values at their real endpoints.
+# ──────────────────────────────────────────────────────────────────────────
+
+# ── Backend / service discovery ──
+BACKEND_URL=http://api-gateway:8080
+# Long random token shared by every plugin/server (e.g. `openssl rand -hex 32`).
+BACKEND_SERVICE_TOKEN=__CHANGE_ME__long_random_service_token__
+EUREKA_URL=http://eureka-server:8761/eureka/
+EUREKA_PREFER_IP=true
+
+# ── PostgreSQL ──
+POSTGRES_DB=redecrystal
+POSTGRES_USER=crystal
+POSTGRES_PASSWORD=__CHANGE_ME__strong_db_password__
+POSTGRES_HOST=postgres
+
+# ── Redis ──
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# ── LuckPerms (must match the PostgreSQL credentials above) ──
+LUCKPERMS_STORAGE_METHOD=postgresql
+LUCKPERMS_DATA_ADDRESS=postgres:5432
+LUCKPERMS_DATA_DATABASE=luckperms_db
+LUCKPERMS_DATA_USERNAME=crystal
+LUCKPERMS_DATA_PASSWORD=__CHANGE_ME__strong_db_password__
+LUCKPERMS_MESSAGING_SERVICE=redis
+LUCKPERMS_REDIS_ENABLED=true
+LUCKPERMS_REDIS_ADDRESS=redis:6379
+
+# ── Kafka ──
+KAFKA_BROKERS=kafka:9092
+
+# ── Minecraft (deploy flags) ──
+EULA=TRUE
+# Production uses premium (Mojang) authentication.
+ONLINE_MODE=TRUE
+
+# ── Grafana admin ──
+GF_SECURITY_ADMIN_USER=admin
+GF_SECURITY_ADMIN_PASSWORD=__CHANGE_ME__strong_grafana_password__

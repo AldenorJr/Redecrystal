@@ -4,6 +4,10 @@ target/
 !.mvn/wrapper/maven-wrapper.jar
 .mvn/timing.properties
 
+# Third-party server plugins are committed so the stack is self-contained.
+!EXTERNAL_PLUGINS/
+!EXTERNAL_PLUGINS/*.jar
+
 # IDE
 .idea/
 *.iml
@@ -17,6 +21,9 @@ target/
 # Env / secrets
 .env
 *.local
+# Active deployment config (copied from configuration/*.example); examples are kept.
+configuration/environment
+configuration/environment.local
 
 # Logs
 *.log

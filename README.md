@@ -59,9 +59,18 @@ internal Docker network.
 ## Quick start (Phase 0/1)
 
 ```bash
-cp .env.example .env
+cp .env.example .env                                              # host port mappings
+cp configuration/environment.release.example configuration/environment   # deploy config
 docker compose up -d        # or: make up
 ```
+
+Configuration is split in two: **`.env`** holds the published host ports (the
+`${...}` interpolation in `docker-compose.yml`), and **`configuration/environment`**
+holds the container/deployment config (DB creds, service token, hosts, LuckPerms,
+EULA…) loaded into the services via `env_file`. Pick a template:
+`configuration/environment.release.example` (dev) or `.production.example`
+(strong secrets, premium auth). The active `configuration/environment` is
+git-ignored; the `.example` files are committed.
 
 Then verify:
 
