@@ -20,10 +20,13 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
+import org.bukkit.Color;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.entity.Player;
+import org.bukkit.util.Vector;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -53,6 +56,17 @@ public final class LobbyHotbar implements Listener {
 
     private static final MiniMessage MM = MiniMessage.miniMessage();
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+    private static final String VIP_PERM = "crystal.cosmetic.vip";
+
+    /** Half-wing silhouette as (horizontal, vertical) offsets; mirrored for both wings. */
+    private static final double[][] WING_POINTS = {
+            {0.25, 0.95}, {0.50, 1.05}, {0.78, 1.08}, {1.05, 1.02}, {1.30, 0.90}, {1.50, 0.72},
+            {0.30, 0.72}, {0.60, 0.78}, {0.92, 0.72}, {1.18, 0.60}, {1.38, 0.45},
+            {0.35, 0.50}, {0.66, 0.50}, {0.96, 0.44}, {1.15, 0.30},
+            {0.42, 0.28}, {0.72, 0.24},
+    };
+
+    private long tick;
 
     private final JavaPlugin plugin;
     private final CrystalCore crystal;
@@ -68,24 +82,54 @@ public final class LobbyHotbar implements Listener {
         this.cosmeticKey = new NamespacedKey(plugin, "cosmetic-id");
     }
 
-    /** Particle-trail cosmetics offered in the cosmetics menu. */
+    /** How a cosmetic is rendered around the player. */
+    private enum Style { TRAIL, WINGS, HALO }
+
+    /**
+     * Cosmetics shown in the menu. The flashy ones (wings, halo, fancy trails) are
+     * {@code vip} — locked behind {@code crystal.cosmetic.vip}.
+     */
     private enum Cosmetic {
-        NONE(Material.BARRIER, "§cRemover cosmético", null),
-        FLAME(Material.BLAZE_POWDER, "§6Trilha de Fogo", Particle.FLAME),
-        HEART(Material.POPPY, "§dCorações", Particle.HEART),
-        HAPPY(Material.SLIME_BALL, "§aVila Feliz", Particle.HAPPY_VILLAGER),
-        NOTE(Material.NOTE_BLOCK, "§bNotas Musicais", Particle.NOTE),
-        CLOUD(Material.WHITE_WOOL, "§fNuvem", Particle.CLOUD),
-        PORTAL(Material.OBSIDIAN, "§5Portal", Particle.PORTAL);
+        NONE(Material.BARRIER, "§cRemover cosmético", Style.TRAIL, null, null, false),
+
+        // ── trilhas gratuitas ──
+        FLAME(Material.BLAZE_POWDER, "§6Trilha de Fogo", Style.TRAIL, Particle.FLAME, null, false),
+        HEART(Material.POPPY, "§dCorações", Style.TRAIL, Particle.HEART, null, false),
+        HAPPY(Material.SLIME_BALL, "§aVila Feliz", Style.TRAIL, Particle.HAPPY_VILLAGER, null, false),
+        NOTE(Material.NOTE_BLOCK, "§bNotas Musicais", Style.TRAIL, Particle.NOTE, null, false),
+        CLOUD(Material.WHITE_WOOL, "§fNuvem", Style.TRAIL, Particle.CLOUD, null, false),
+        SNOW(Material.SNOWBALL, "§fFloco de Neve", Style.TRAIL, Particle.SNOWFLAKE, null, false),
+
+        // ── trilhas VIP (mais loucas) ──
+        PORTAL(Material.OBSIDIAN, "§5Portal", Style.TRAIL, Particle.PORTAL, null, true),
+        SOUL(Material.SOUL_SAND, "§3Almas", Style.TRAIL, Particle.SOUL, null, true),
+        DRAGON(Material.DRAGON_HEAD, "§5Sopro do Dragão", Style.TRAIL, Particle.DRAGON_BREATH, null, true),
+        LAVA(Material.MAGMA_BLOCK, "§cLava", Style.TRAIL, Particle.LAVA, null, true),
+        RAINBOW(Material.FIREWORK_STAR, "§d§lArco-Íris", Style.TRAIL, Particle.DUST, Color.FUCHSIA, true),
+
+        // ── asas VIP ──
+        ANGEL_WINGS(Material.FEATHER, "§f§lAsas de Anjo", Style.WINGS, Particle.CLOUD, null, true),
+        DEMON_WINGS(Material.BLAZE_ROD, "§c§lAsas Demoníacas", Style.WINGS, Particle.FLAME, null, true),
+        ENDER_WINGS(Material.ENDER_EYE, "§5§lAsas do End", Style.WINGS, Particle.PORTAL, null, true),
+        FAIRY_WINGS(Material.PINK_DYE, "§d§lAsas de Fada", Style.WINGS, Particle.DUST, Color.fromRGB(0xFF6EC7), true),
+
+        // ── auréola VIP ──
+        HALO(Material.GOLD_INGOT, "§e§lAuréola", Style.HALO, Particle.END_ROD, null, true);
 
         final Material icon;
         final String name;
+        final Style style;
         final Particle particle;
+        final Color color;
+        final boolean vip;
 
-        Cosmetic(Material icon, String name, Particle particle) {
+        Cosmetic(Material icon, String name, Style style, Particle particle, Color color, boolean vip) {
             this.icon = icon;
             this.name = name;
+            this.style = style;
             this.particle = particle;
+            this.color = color;
+            this.vip = vip;
         }
     }
 
@@ -100,13 +144,84 @@ public final class LobbyHotbar implements Listener {
     }
 
     private void tickCosmetics() {
+        tick++;
         for (Player p : plugin.getServer().getOnlinePlayers()) {
             Cosmetic c = activeCosmetic.get(p.getUniqueId());
-            if (c != null && c.particle != null) {
-                p.getWorld().spawnParticle(c.particle, p.getLocation().add(0, 0.15, 0),
-                        8, 0.3, 0.1, 0.3, 0.0);
+            if (c == null || c.particle == null) {
+                continue;
+            }
+            // Safety: revoke a VIP cosmetic if the player lost the permission.
+            if (c.vip && !p.hasPermission(VIP_PERM)) {
+                activeCosmetic.remove(p.getUniqueId());
+                continue;
+            }
+            switch (c.style) {
+                case TRAIL -> spawn(p, c, p.getLocation().add(0, 0.15, 0), 8, 0.3, 0.1, 0.3);
+                case WINGS -> renderWings(p, c);
+                case HALO -> renderHalo(p, c);
             }
         }
+    }
+
+    private void renderWings(Player p, Cosmetic c) {
+        Location base = p.getLocation();
+        Vector dir = base.getDirection().setY(0);
+        if (dir.lengthSquared() < 1.0E-4) {
+            dir = new Vector(0, 0, 1);
+        }
+        dir.normalize();
+        Vector right = new Vector(-dir.getZ(), 0, dir.getX()).normalize();
+        Location anchor = base.clone().add(0, 1.0, 0).add(dir.clone().multiply(-0.3));
+        for (double[] pt : WING_POINTS) {
+            for (int sign = -1; sign <= 1; sign += 2) {
+                Location loc = anchor.clone()
+                        .add(right.clone().multiply(pt[0] * sign))
+                        .add(0, pt[1], 0);
+                spawn(p, c, loc, 1, 0, 0, 0);
+            }
+        }
+    }
+
+    private void renderHalo(Player p, Cosmetic c) {
+        Location centre = p.getLocation().add(0, 2.25, 0);
+        int points = 14;
+        double radius = 0.5;
+        double spin = (tick % 40) / 40.0 * Math.PI * 2;
+        for (int i = 0; i < points; i++) {
+            double a = spin + (Math.PI * 2 * i / points);
+            Location loc = centre.clone().add(Math.cos(a) * radius, 0, Math.sin(a) * radius);
+            spawn(p, c, loc, 1, 0, 0, 0);
+        }
+    }
+
+    /** Spawn the cosmetic's particle, using coloured dust when a colour is set. */
+    private void spawn(Player p, Cosmetic c, Location loc, int count, double ox, double oy, double oz) {
+        if (c.particle == Particle.DUST) {
+            Color col = c.color == null ? Color.WHITE : c.color;
+            if (c == Cosmetic.RAINBOW) {
+                col = rainbow();
+            }
+            p.getWorld().spawnParticle(Particle.DUST, loc, count, ox, oy, oz, 0.0,
+                    new Particle.DustOptions(col, 1.3f));
+        } else {
+            p.getWorld().spawnParticle(c.particle, loc, count, ox, oy, oz, 0.0);
+        }
+    }
+
+    /** A colour cycling through the hue wheel over time (manual HSV→RGB). */
+    private Color rainbow() {
+        float h = (tick % 80) / 80.0f * 6f;
+        int i = (int) h % 6;
+        float f = h - (int) h;
+        int v = 255, q = (int) (255 * (1 - f)), t = (int) (255 * f);
+        return switch (i) {
+            case 0 -> Color.fromRGB(v, t, 0);
+            case 1 -> Color.fromRGB(q, v, 0);
+            case 2 -> Color.fromRGB(0, v, t);
+            case 3 -> Color.fromRGB(0, q, v);
+            case 4 -> Color.fromRGB(t, 0, v);
+            default -> Color.fromRGB(v, 0, q);
+        };
     }
 
     @EventHandler
@@ -198,21 +313,36 @@ public final class LobbyHotbar implements Listener {
     // ── cosmetics ──
 
     private void openCosmetics(Player p) {
+        Cosmetic[] all = Cosmetic.values();
+        List<Integer> slots = innerSlots(all.length);
+        int size = ((slots.get(slots.size() - 1) / 9) + 2) * 9;
+        size = Math.max(27, Math.min(size, 54));
         MenuHolder holder = new MenuHolder("cosmetics");
-        Inventory inv = Bukkit.createInventory(holder, 27, Component.text("Cosméticos"));
-        border(inv, 27);
+        Inventory inv = Bukkit.createInventory(holder, size, Component.text("Cosméticos"));
+        border(inv, size);
+
         Cosmetic current = activeCosmetic.get(p.getUniqueId());
-        int slot = 10;
-        for (Cosmetic c : Cosmetic.values()) {
+        boolean isVip = p.hasPermission(VIP_PERM);
+        for (int i = 0; i < all.length && i < slots.size(); i++) {
+            Cosmetic c = all[i];
             boolean selected = (current == null ? Cosmetic.NONE : current) == c;
+            boolean locked = c.vip && !isVip;
+
             List<String> lore = new ArrayList<>();
-            if (c == Cosmetic.NONE) {
-                lore.add("§7Desativa o cosmético atual");
-            } else {
-                lore.add("§7Partículas que seguem você");
-            }
+            lore.add(describe(c));
             lore.add(" ");
-            lore.add(selected ? "§a✔ Selecionado" : "§eClique para usar");
+            if (locked) {
+                lore.add("§c🔒 Exclusivo VIP");
+                lore.add("§7Adquira VIP para usar");
+            } else if (selected) {
+                lore.add("§a✔ Selecionado");
+            } else {
+                if (c.vip) {
+                    lore.add("§6★ VIP");
+                }
+                lore.add("§eClique para usar");
+            }
+
             ItemStack it = item(c.icon, c.name, lore.toArray(new String[0]));
             if (selected && c != Cosmetic.NONE) {
                 glow(it);
@@ -220,12 +350,25 @@ public final class LobbyHotbar implements Listener {
             var meta = it.getItemMeta();
             meta.getPersistentDataContainer().set(cosmeticKey, PersistentDataType.STRING, c.name());
             it.setItemMeta(meta);
-            inv.setItem(slot++, it);
+            inv.setItem(slots.get(i), it);
         }
         p.openInventory(inv);
     }
 
+    private String describe(Cosmetic c) {
+        return switch (c.style) {
+            case WINGS -> "§7Asas de partículas nas suas costas";
+            case HALO -> "§7Uma auréola sobre a sua cabeça";
+            case TRAIL -> c == Cosmetic.NONE ? "§7Desativa o cosmético atual"
+                    : "§7Partículas que seguem você";
+        };
+    }
+
     private void selectCosmetic(Player p, Cosmetic c) {
+        if (c.vip && !p.hasPermission(VIP_PERM)) {
+            p.sendActionBar(MM.deserialize("<red>Esse cosmético é exclusivo para VIPs!"));
+            return;
+        }
         if (c == Cosmetic.NONE) {
             activeCosmetic.remove(p.getUniqueId());
             p.sendActionBar(Component.text("Cosmético removido", NamedTextColor.GRAY));
