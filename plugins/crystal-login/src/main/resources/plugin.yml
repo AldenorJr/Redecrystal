@@ -4,3 +4,7 @@ main: com.redecrystal.login.CrystalLoginPlugin
 api-version: '1.21'
 author: RedeCrystal
 description: Session/auth gateway that forwards players to a lobby.
+permissions:
+  crystal.fly:
+    description: Fly freely around the lobby and login
+    default: op
