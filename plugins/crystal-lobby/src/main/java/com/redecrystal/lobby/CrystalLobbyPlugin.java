@@ -5,6 +5,7 @@ import com.redecrystal.core.CrystalCore;
 import com.redecrystal.core.http.RemoteConfig;
 import com.redecrystal.core.messaging.KafkaTopics;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -29,7 +30,9 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class CrystalLobbyPlugin extends JavaPlugin implements Listener {
 
     private static final String CONFIG_KEY = "lobby";
+    private static final String GLOBAL_KEY = "global";
     private static final String ADMIN_PERM = "crystal.lobby.admin";
+    private static final String MAINT_PERM = "crystal.maintenance";
 
     private CrystalCore crystal;
     private volatile String motd = "RedeCrystal";
@@ -138,6 +141,9 @@ public final class CrystalLobbyPlugin extends JavaPlugin implements Listener {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if ("manutencao".equalsIgnoreCase(command.getName())) {
+            return handleMaintenance(sender, args);
+        }
         if (!(sender instanceof Player player)) {
             sender.sendMessage("Apenas jogadores.");
             return true;
@@ -163,6 +169,44 @@ public final class CrystalLobbyPlugin extends JavaPlugin implements Listener {
             return true;
         }
         player.sendMessage(Component.text("/lobby [setspawn]", NamedTextColor.GRAY));
+        return true;
+    }
+
+    /** {@code /manutencao <on|off>} — toggles global.maintenance for the whole network. */
+    private boolean handleMaintenance(CommandSender sender, String[] args) {
+        if (!sender.hasPermission(MAINT_PERM)) {
+            sender.sendMessage(Component.text("Sem permissão.", NamedTextColor.RED));
+            return true;
+        }
+        if (args.length == 0) {
+            boolean current = crystal.configProvider().get(GLOBAL_KEY).bool("maintenance", false);
+            sender.sendMessage(Component.text("Manutenção está " + (current ? "LIGADA" : "DESLIGADA")
+                    + ". Use /manutencao <on|off>.", NamedTextColor.YELLOW));
+            return true;
+        }
+        String arg = args[0].toLowerCase(Locale.ROOT);
+        final boolean enable;
+        if (arg.equals("on") || arg.equals("ligar") || arg.equals("true")) {
+            enable = true;
+        } else if (arg.equals("off") || arg.equals("desligar") || arg.equals("false")) {
+            enable = false;
+        } else {
+            sender.sendMessage(Component.text("Use /manutencao <on|off>.", NamedTextColor.GRAY));
+            return true;
+        }
+
+        getServer().getScheduler().runTaskAsynchronously(this, () -> {
+            try {
+                Map<String, Object> cfg = new HashMap<>(crystal.configProvider().get(GLOBAL_KEY).config());
+                cfg.put("maintenance", enable);
+                crystal.backend().putConfig(GLOBAL_KEY, cfg);
+                sender.sendMessage(Component.text("Manutenção " + (enable ? "LIGADA" : "DESLIGADA")
+                        + " para toda a rede.", enable ? NamedTextColor.GOLD : NamedTextColor.GREEN));
+            } catch (Exception e) {
+                sender.sendMessage(Component.text("Falha ao alterar manutenção: " + e.getMessage(),
+                        NamedTextColor.RED));
+            }
+        });
         return true;
     }
 
