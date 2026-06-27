@@ -35,6 +35,7 @@ public final class CrystalLobbyPlugin extends JavaPlugin implements Listener {
     private static final String MAINT_PERM = "crystal.maintenance";
 
     private CrystalCore crystal;
+    private LobbyHotbar hotbar;
     private volatile String motd = "RedeCrystal";
     private volatile Location spawn;
     private volatile double voidY = 30;
@@ -61,7 +62,7 @@ public final class CrystalLobbyPlugin extends JavaPlugin implements Listener {
 
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getMessenger().registerOutgoingPluginChannel(this, "BungeeCord");
-        LobbyHotbar hotbar = new LobbyHotbar(this, crystal);
+        this.hotbar = new LobbyHotbar(this, crystal);
         getServer().getPluginManager().registerEvents(hotbar, this);
         hotbar.start();
         getServer().getPluginManager().registerEvents(new LobbyProtection(this), this);
@@ -73,6 +74,9 @@ public final class CrystalLobbyPlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (hotbar != null) {
+            hotbar.shutdown();
+        }
         if (crystal != null) {
             crystal.close();
         }

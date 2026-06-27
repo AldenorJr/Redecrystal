@@ -25,6 +25,11 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
+import org.bukkit.entity.Ageable;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.EntityType;
+import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
 import org.bukkit.util.Vector;
 import org.bukkit.enchantments.Enchantment;
@@ -70,16 +75,25 @@ public final class LobbyHotbar implements Listener {
 
     private final JavaPlugin plugin;
     private final CrystalCore crystal;
+    private static final String PET_TAG = "crystal_pet";
+
     private final Map<UUID, Boolean> playersHidden = new ConcurrentHashMap<>();
     private final Map<UUID, Cosmetic> activeCosmetic = new ConcurrentHashMap<>();
+    private final Map<UUID, Hat> activeHat = new ConcurrentHashMap<>();
+    private final Map<UUID, Pet> activePetType = new ConcurrentHashMap<>();
+    private final Map<UUID, Entity> activePet = new ConcurrentHashMap<>();
     private final NamespacedKey lobbyKey;
     private final NamespacedKey cosmeticKey;
+    private final NamespacedKey hatKey;
+    private final NamespacedKey petKey;
 
     public LobbyHotbar(JavaPlugin plugin, CrystalCore crystal) {
         this.plugin = plugin;
         this.crystal = crystal;
         this.lobbyKey = new NamespacedKey(plugin, "lobby-id");
         this.cosmeticKey = new NamespacedKey(plugin, "cosmetic-id");
+        this.hatKey = new NamespacedKey(plugin, "hat-id");
+        this.petKey = new NamespacedKey(plugin, "pet-id");
     }
 
     /** How a cosmetic is rendered around the player. */
@@ -133,14 +147,93 @@ public final class LobbyHotbar implements Listener {
         }
     }
 
+    /** Wearable hats (the head item is the icon material). Fancy ones are VIP. */
+    private enum Hat {
+        NONE(Material.BARRIER, "§cRemover chapéu", false),
+        PUMPKIN(Material.CARVED_PUMPKIN, "§6Abóbora", false),
+        MELON(Material.MELON, "§aMelancia", false),
+        TNT(Material.TNT, "§cTNT", false),
+        CHEST(Material.CHEST, "§eBaú", false),
+        CRAFTING(Material.CRAFTING_TABLE, "§6Mesa de Trabalho", false),
+        ZOMBIE(Material.ZOMBIE_HEAD, "§2Zumbi", false),
+        SKELETON(Material.SKELETON_SKULL, "§7Esqueleto", false),
+        JACK(Material.JACK_O_LANTERN, "§6Lanterna", true),
+        CREEPER(Material.CREEPER_HEAD, "§aCreeper", true),
+        GOLD(Material.GOLD_BLOCK, "§eBloco de Ouro", true),
+        DIAMOND(Material.DIAMOND_BLOCK, "§bBloco de Diamante", true),
+        BEACON(Material.BEACON, "§bSinalizador", true),
+        DRAGON(Material.DRAGON_HEAD, "§5Cabeça de Dragão", true);
+
+        final Material material;
+        final String name;
+        final boolean vip;
+
+        Hat(Material material, String name, boolean vip) {
+            this.material = material;
+            this.name = name;
+            this.vip = vip;
+        }
+    }
+
+    /** Companion pets that follow the player. Fancy ones are VIP. */
+    private enum Pet {
+        NONE(Material.BARRIER, "§cRemover pet", null, false, false),
+        WOLF(Material.BONE, "§7Lobo", EntityType.WOLF, false, false),
+        CAT(Material.STRING, "§6Gato", EntityType.CAT, true, false),
+        CHICKEN(Material.EGG, "§eGalinha", EntityType.CHICKEN, true, false),
+        PIG(Material.CARROT, "§dPorco", EntityType.PIG, true, false),
+        RABBIT(Material.RABBIT_FOOT, "§fCoelho", EntityType.RABBIT, true, false),
+        FOX(Material.SWEET_BERRIES, "§6Raposa", EntityType.FOX, true, true),
+        PARROT(Material.FEATHER, "§aPapagaio", EntityType.PARROT, false, true),
+        BEE(Material.HONEYCOMB, "§eAbelha", EntityType.BEE, true, true),
+        ALLAY(Material.AMETHYST_SHARD, "§bAllay", EntityType.ALLAY, false, true);
+
+        final Material icon;
+        final String name;
+        final EntityType type;
+        final boolean baby;
+        final boolean vip;
+
+        Pet(Material icon, String name, EntityType type, boolean baby, boolean vip) {
+            this.icon = icon;
+            this.name = name;
+            this.type = type;
+            this.baby = baby;
+            this.vip = vip;
+        }
+    }
+
     /** Marks an inventory we own so clicks in it are handled, not blocked generically. */
     private record MenuHolder(String type) implements InventoryHolder {
         @Override public Inventory getInventory() { return null; }
     }
 
-    /** Start the cosmetic particle task. Called once from the plugin's onEnable. */
+    /** Start the cosmetic/pet tasks. Called once from the plugin's onEnable. */
     public void start() {
+        removeOrphanPets(); // clear any pets left over from a previous run/crash
         plugin.getServer().getScheduler().runTaskTimer(plugin, this::tickCosmetics, 10L, 6L);
+        plugin.getServer().getScheduler().runTaskTimer(plugin, this::followPets, 10L, 4L);
+    }
+
+    /** Remove all spawned pets (called on disable so none are orphaned). */
+    public void shutdown() {
+        for (Entity e : activePet.values()) {
+            if (e != null && !e.isDead()) {
+                e.remove();
+            }
+        }
+        activePet.clear();
+        removeOrphanPets();
+    }
+
+    private void removeOrphanPets() {
+        for (org.bukkit.World w : plugin.getServer().getWorlds()) {
+            for (Entity e : w.getEntities()) {
+                if (e.getScoreboardTags().contains(PET_TAG)) {
+                    e.remove();
+                }
+            }
+        }
     }
 
     private void tickCosmetics() {
@@ -235,6 +328,12 @@ public final class LobbyHotbar implements Listener {
         UUID uuid = event.getPlayer().getUniqueId();
         playersHidden.remove(uuid);
         activeCosmetic.remove(uuid);
+        activeHat.remove(uuid);
+        activePetType.remove(uuid);
+        Entity pet = activePet.remove(uuid);
+        if (pet != null && !pet.isDead()) {
+            pet.remove();
+        }
     }
 
     @EventHandler
@@ -248,11 +347,21 @@ public final class LobbyHotbar implements Listener {
         }
         p.getInventory().clear();
         p.getInventory().setItem(0, item(Material.COMPASS, "§bModos de Jogo", "§7Clique para escolher um modo"));
+        p.getInventory().setItem(1, item(Material.BONE, "§6Pets", "§7Escolha um bichinho de estimação"));
         p.getInventory().setItem(3, item(Material.RED_BED, "§aLobbys", "§7Clique para trocar de lobby"));
         p.getInventory().setItem(4, profileHead(p));
-        p.getInventory().setItem(7, hideToggleItem(p));
+        p.getInventory().setItem(5, hideToggleItem(p));
+        p.getInventory().setItem(7, item(Material.LEATHER_HELMET, "§bChapéus", "§7Equipe um chapéu estiloso"));
         p.getInventory().setItem(8, item(Material.NETHER_STAR, "§dCosméticos", "§7Personalize o seu visual"));
         p.getInventory().setHeldItemSlot(0);
+
+        // Re-apply the active hat (the clear() above wiped the armour slot).
+        Hat hat = activeHat.get(p.getUniqueId());
+        if (hat != null && hat != Hat.NONE) {
+            p.getInventory().setHelmet(new ItemStack(hat.material));
+        } else {
+            p.getInventory().setHelmet(null);
+        }
     }
 
     // ── locks ──
@@ -294,9 +403,11 @@ public final class LobbyHotbar implements Listener {
         Player p = event.getPlayer();
         switch (event.getItem().getType()) {
             case COMPASS -> { event.setCancelled(true); openGames(p); }
+            case BONE -> { event.setCancelled(true); openPets(p); }
             case RED_BED -> { event.setCancelled(true); openLobbys(p); }
             case PLAYER_HEAD -> { event.setCancelled(true); showProfile(p); }
             case LIME_DYE, GRAY_DYE -> { event.setCancelled(true); toggleHide(p); }
+            case LEATHER_HELMET -> { event.setCancelled(true); openHats(p); }
             case NETHER_STAR -> { event.setCancelled(true); openCosmetics(p); }
             default -> { }
         }
@@ -377,6 +488,173 @@ public final class LobbyHotbar implements Listener {
             p.sendActionBar(MM.deserialize("<green>Cosmético ativado!"));
         }
         openCosmetics(p); // refresh selection state
+    }
+
+    // ── hats ──
+
+    private void openHats(Player p) {
+        Hat[] all = Hat.values();
+        List<Integer> slots = innerSlots(all.length);
+        int size = Math.max(27, Math.min(((slots.get(slots.size() - 1) / 9) + 2) * 9, 54));
+        MenuHolder holder = new MenuHolder("hats");
+        Inventory inv = Bukkit.createInventory(holder, size, Component.text("Chapéus"));
+        border(inv, size);
+
+        Hat current = activeHat.get(p.getUniqueId());
+        boolean isVip = p.hasPermission(VIP_PERM);
+        for (int i = 0; i < all.length && i < slots.size(); i++) {
+            Hat h = all[i];
+            boolean selected = (current == null ? Hat.NONE : current) == h;
+            boolean locked = h.vip && !isVip;
+            List<String> lore = new ArrayList<>();
+            lore.add(h == Hat.NONE ? "§7Remove o chapéu atual" : "§7Use na sua cabeça");
+            lore.add(" ");
+            if (locked) {
+                lore.add("§c🔒 Exclusivo VIP");
+                lore.add("§7Adquira VIP para usar");
+            } else if (selected) {
+                lore.add("§a✔ Selecionado");
+            } else {
+                if (h.vip) lore.add("§6★ VIP");
+                lore.add("§eClique para usar");
+            }
+            ItemStack it = item(h.material, h.name, lore.toArray(new String[0]));
+            if (selected && h != Hat.NONE) glow(it);
+            var meta = it.getItemMeta();
+            meta.getPersistentDataContainer().set(hatKey, PersistentDataType.STRING, h.name());
+            it.setItemMeta(meta);
+            inv.setItem(slots.get(i), it);
+        }
+        p.openInventory(inv);
+    }
+
+    private void selectHat(Player p, Hat h) {
+        if (h.vip && !p.hasPermission(VIP_PERM)) {
+            p.sendActionBar(MM.deserialize("<red>Esse chapéu é exclusivo para VIPs!"));
+            return;
+        }
+        if (h == Hat.NONE) {
+            activeHat.remove(p.getUniqueId());
+            p.getInventory().setHelmet(null);
+            p.sendActionBar(Component.text("Chapéu removido", NamedTextColor.GRAY));
+        } else {
+            activeHat.put(p.getUniqueId(), h);
+            p.getInventory().setHelmet(new ItemStack(h.material));
+            p.sendActionBar(MM.deserialize("<green>Chapéu equipado!"));
+        }
+        openHats(p);
+    }
+
+    // ── pets ──
+
+    private void openPets(Player p) {
+        Pet[] all = Pet.values();
+        List<Integer> slots = innerSlots(all.length);
+        int size = Math.max(27, Math.min(((slots.get(slots.size() - 1) / 9) + 2) * 9, 54));
+        MenuHolder holder = new MenuHolder("pets");
+        Inventory inv = Bukkit.createInventory(holder, size, Component.text("Pets"));
+        border(inv, size);
+
+        Pet current = activePetType.get(p.getUniqueId());
+        boolean isVip = p.hasPermission(VIP_PERM);
+        for (int i = 0; i < all.length && i < slots.size(); i++) {
+            Pet pet = all[i];
+            boolean selected = (current == null ? Pet.NONE : current) == pet;
+            boolean locked = pet.vip && !isVip;
+            List<String> lore = new ArrayList<>();
+            lore.add(pet == Pet.NONE ? "§7Remove o pet atual" : "§7Um bichinho que te segue");
+            lore.add(" ");
+            if (locked) {
+                lore.add("§c🔒 Exclusivo VIP");
+                lore.add("§7Adquira VIP para usar");
+            } else if (selected) {
+                lore.add("§a✔ Selecionado");
+            } else {
+                if (pet.vip) lore.add("§6★ VIP");
+                lore.add("§eClique para usar");
+            }
+            ItemStack it = item(pet.icon, pet.name, lore.toArray(new String[0]));
+            if (selected && pet != Pet.NONE) glow(it);
+            var meta = it.getItemMeta();
+            meta.getPersistentDataContainer().set(petKey, PersistentDataType.STRING, pet.name());
+            it.setItemMeta(meta);
+            inv.setItem(slots.get(i), it);
+        }
+        p.openInventory(inv);
+    }
+
+    private void selectPet(Player p, Pet pet) {
+        if (pet.vip && !p.hasPermission(VIP_PERM)) {
+            p.sendActionBar(MM.deserialize("<red>Esse pet é exclusivo para VIPs!"));
+            return;
+        }
+        Entity old = activePet.remove(p.getUniqueId());
+        if (old != null && !old.isDead()) {
+            old.remove();
+        }
+        activePetType.remove(p.getUniqueId());
+        if (pet == Pet.NONE) {
+            p.sendActionBar(Component.text("Pet removido", NamedTextColor.GRAY));
+        } else {
+            Entity e = spawnPet(p, pet);
+            if (e != null) {
+                activePet.put(p.getUniqueId(), e);
+                activePetType.put(p.getUniqueId(), pet);
+                p.sendActionBar(MM.deserialize("<green>Pet ativado!"));
+            }
+        }
+        openPets(p);
+    }
+
+    private Entity spawnPet(Player p, Pet pet) {
+        try {
+            Entity e = p.getWorld().spawnEntity(p.getLocation(), pet.type);
+            e.addScoreboardTag(PET_TAG);
+            if (e instanceof Mob mob) {
+                mob.setAI(false);
+                mob.setSilent(true);
+                mob.setCollidable(false);
+                mob.setRemoveWhenFarAway(false);
+                mob.setPersistent(true);
+            }
+            if (e instanceof LivingEntity le) {
+                le.setInvulnerable(true);
+            }
+            if (pet.baby && e instanceof Ageable age) {
+                age.setBaby();
+            }
+            return e;
+        } catch (Exception ex) {
+            plugin.getLogger().warning("Falha ao criar pet " + pet + ": " + ex.getMessage());
+            return null;
+        }
+    }
+
+    private void followPets() {
+        for (Map.Entry<UUID, Entity> entry : activePet.entrySet()) {
+            Player owner = plugin.getServer().getPlayer(entry.getKey());
+            Entity pet = entry.getValue();
+            if (owner == null || pet == null || pet.isDead()) {
+                continue;
+            }
+            Location ol = owner.getLocation();
+            Vector dir = ol.getDirection().setY(0);
+            if (dir.lengthSquared() < 1.0E-4) {
+                dir = new Vector(0, 0, 1);
+            }
+            dir.normalize();
+            Vector side = new Vector(-dir.getZ(), 0, dir.getX()).multiply(0.6);
+            Location target = ol.clone().add(dir.multiply(-1.2)).add(side);
+            target.setY(ol.getY());
+            if (pet.getWorld() != target.getWorld()
+                    || pet.getLocation().distanceSquared(target) > 2.25) {
+                Vector face = ol.toVector().subtract(target.toVector());
+                if (face.lengthSquared() > 1.0E-4) {
+                    target.setDirection(face);
+                }
+                pet.teleport(target);
+            }
+        }
     }
 
     // ── lobbys ──
@@ -481,6 +759,26 @@ public final class LobbyHotbar implements Listener {
                 if (id != null) {
                     try {
                         selectCosmetic(p, Cosmetic.valueOf(id));
+                    } catch (IllegalArgumentException ignored) {
+                    }
+                }
+            }
+            case "hats" -> {
+                String id = clicked.getItemMeta().getPersistentDataContainer()
+                        .get(hatKey, PersistentDataType.STRING);
+                if (id != null) {
+                    try {
+                        selectHat(p, Hat.valueOf(id));
+                    } catch (IllegalArgumentException ignored) {
+                    }
+                }
+            }
+            case "pets" -> {
+                String id = clicked.getItemMeta().getPersistentDataContainer()
+                        .get(petKey, PersistentDataType.STRING);
+                if (id != null) {
+                    try {
+                        selectPet(p, Pet.valueOf(id));
                     } catch (IllegalArgumentException ignored) {
                     }
                 }
