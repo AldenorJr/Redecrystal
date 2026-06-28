@@ -2,15 +2,14 @@ package com.redecrystal.tab;
 
 import com.redecrystal.core.CrystalConfig;
 import com.redecrystal.core.CrystalCore;
+import com.redecrystal.core.cargo.TagOverrides;
 import com.redecrystal.core.http.RemoteConfig;
+import com.redecrystal.tab.listener.PlayerJoinListener;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -21,7 +20,7 @@ import org.bukkit.scheduler.BukkitTask;
  * shared {@code chat} role config so the tab matches the chat. The online count
  * is network-wide (Redis).
  */
-public final class CrystalTabPlugin extends JavaPlugin implements Listener {
+public final class CrystalTabPlugin extends JavaPlugin {
 
     private static final String CONFIG_KEY = "tab";
     private static final String CHAT_CONFIG_KEY = "chat";
@@ -74,7 +73,7 @@ public final class CrystalTabPlugin extends JavaPlugin implements Listener {
         crystal.configProvider().onChange(GLOBAL_CONFIG_KEY,
                 cfg -> this.maintenance = cfg.bool("maintenance", false));
 
-        getServer().getPluginManager().registerEvents(this, this);
+        getServer().getPluginManager().registerEvents(new PlayerJoinListener(this), this);
         reschedule();
         getLogger().info("CrystalTab enabled.");
     }
@@ -132,6 +131,18 @@ public final class CrystalTabPlugin extends JavaPlugin implements Listener {
         return null;
     }
 
+    /** Highest-weight role, but an admin override (by cargo id) wins. */
+    private Role resolveRole(Player player, String overrideId) {
+        if (overrideId != null && !overrideId.isBlank()) {
+            for (Role role : roles) {
+                if (role.id().equals(overrideId)) {
+                    return role;
+                }
+            }
+        }
+        return resolveRole(player);
+    }
+
     private void reschedule() {
         if (task != null) {
             task.cancel();
@@ -141,25 +152,33 @@ public final class CrystalTabPlugin extends JavaPlugin implements Listener {
 
     private void refresh() {
         int online = (int) crystal.redis().onlineCount();
+        // One hgetAll per tick instead of one hget per player — keeps Redis round-trips O(1).
+        Map<String, String> overrides;
+        try {
+            overrides = crystal.redis().hgetAll(TagOverrides.KEY);
+        } catch (Exception e) {
+            overrides = Map.of();
+        }
         for (Player p : getServer().getOnlinePlayers()) {
             try {
-                renderTab(p, online);
+                renderTab(p, online, overrides.get(p.getUniqueId().toString()));
             } catch (Exception e) {
                 getLogger().warning("Tab render failed for " + p.getName() + ": " + e);
             }
         }
     }
 
-    @EventHandler
-    public void onJoin(PlayerJoinEvent event) {
+    /** Render the tab for a player that just joined, using the live online count. */
+    public void renderOnJoin(Player player) {
         int online = (int) crystal.redis().onlineCount();
-        renderTab(event.getPlayer(), online);
+        String overrideId = TagOverrides.read(crystal.redis(), player.getUniqueId());
+        renderTab(player, online, overrideId);
     }
 
-    private void renderTab(Player player, int online) {
+    private void renderTab(Player player, int online, String overrideId) {
         String h = maintenance ? maintenanceHeader : header;
         String f = maintenance ? maintenanceFooter : footer;
-        Role role = resolveRole(player);
+        Role role = resolveRole(player, overrideId);
         String prefix = role == null ? "" : role.prefix();
         String nameColor = role == null ? "" : role.nameColor();
         renderer.apply(player, h, f, online, maxPlayers, prefixInTab, prefix, nameColor);

@@ -1,14 +1,16 @@
-package com.redecrystal.lobby;
+package com.redecrystal.lobby.listener;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.redecrystal.core.CrystalCore;
 import com.redecrystal.core.cargo.CargoResolver;
+import com.redecrystal.core.cargo.TagOverrides;
 import com.redecrystal.core.http.BackendHttpClient;
 import com.redecrystal.core.http.InventoryData;
 import com.redecrystal.core.http.NetworkServer;
 import com.redecrystal.core.http.ProfileData;
 import com.redecrystal.core.json.Json;
+import io.papermc.paper.event.player.AsyncChatEvent;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -19,14 +21,17 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
+import org.bukkit.FluidCollisionMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -37,6 +42,7 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
+import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.event.EventHandler;
@@ -71,6 +77,13 @@ public final class LobbyHotbar implements Listener {
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     private static final String VIP_PERM = "crystal.cosmetic.vip";
 
+    /** Vertical offset so aerial pets hover near the owner's head. */
+    private static final double AERIAL_OFFSET = 1.1;
+    /** How far down a grounded pet scans for the floor beneath its anchor. */
+    private static final double GROUND_SCAN_DEPTH = 32.0;
+    /** Max custom pet name length, after sanitisation. */
+    private static final int PET_NAME_MAX = 24;
+
     /** Half-wing silhouette as (horizontal, vertical) offsets; mirrored for both wings. */
     private static final double[][] WING_POINTS = {
             {0.25, 0.95}, {0.50, 1.05}, {0.78, 1.08}, {1.05, 1.02}, {1.30, 0.90}, {1.50, 0.72},
@@ -98,6 +111,12 @@ public final class LobbyHotbar implements Listener {
     private final Map<UUID, Vector> petDir = new ConcurrentHashMap<>();
     /** Owner's last horizontal location, used to detect real movement. */
     private final Map<UUID, Location> petOwnerLast = new ConcurrentHashMap<>();
+    /** Last floor sample per grounded pet, re-traced only when it crosses columns. */
+    private final Map<UUID, GroundSample> petGround = new ConcurrentHashMap<>();
+    /** Custom display name per pet — cleared whenever the pet is removed. */
+    private final Map<UUID, String> petName = new ConcurrentHashMap<>();
+    /** Players whose next chat message renames their pet. */
+    private final Set<UUID> awaitingPetName = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Map<ArmorSlot, Armor>> activeArmor = new ConcurrentHashMap<>();
     /** Optimistic-lock version last seen for each player's cosmetics row. */
     private final Map<UUID, Integer> cosmeticsVersion = new ConcurrentHashMap<>();
@@ -307,6 +326,10 @@ public final class LobbyHotbar implements Listener {
         @Override public Inventory getInventory() { return null; }
     }
 
+    /** A grounded pet's cached floor sample: the block column it was taken in plus
+     *  the resolved world Y. */
+    private record GroundSample(int blockX, int blockZ, double y) { }
+
     /** Start the cosmetic/pet tasks. Called once from the plugin's onEnable. */
     public void start() {
         removeOrphanPets(); // clear any pets left over from a previous run/crash
@@ -437,6 +460,9 @@ public final class LobbyHotbar implements Listener {
         cosmeticsVersion.remove(uuid);
         petDir.remove(uuid);
         petOwnerLast.remove(uuid);
+        petGround.remove(uuid);
+        petName.remove(uuid);
+        awaitingPetName.remove(uuid);
         Entity pet = activePet.remove(uuid);
         if (pet != null && !pet.isDead()) {
             pet.remove();
@@ -491,7 +517,7 @@ public final class LobbyHotbar implements Listener {
         InventoryHolder holder = event.getInventory().getHolder();
         if (holder instanceof MenuHolder menu) {
             event.setCancelled(true);
-            handleMenuClick((Player) event.getWhoClicked(), menu, event.getCurrentItem());
+            handleMenuClick((Player) event.getWhoClicked(), menu, event.getCurrentItem(), event.isShiftClick());
             return;
         }
         // Lock the lobby inventory itself (no moving the cosmetic hotbar).
@@ -875,7 +901,25 @@ public final class LobbyHotbar implements Listener {
             inv.setItem(slots.get(i), it);
         }
         inv.setItem(barCenter(inv), clearButton(petKey, Pet.NONE.name()));
+        if (current != null && current != Pet.NONE) {
+            inv.setItem(barLeft(inv), petNameButton(p)); // rename only with a pet out
+        }
         p.openInventory(inv);
+    }
+
+    /** Bottom-bar button that starts the chat rename flow (shift-click clears it). */
+    private ItemStack petNameButton(Player p) {
+        String name = petName.get(p.getUniqueId());
+        List<String> lore = new ArrayList<>();
+        lore.add(name != null && !name.isBlank() ? "§7Nome atual: §f" + name : "§7Sem nome personalizado");
+        lore.add(" ");
+        lore.add("§eClique para renomear");
+        lore.add("§eShift-clique para remover o nome");
+        ItemStack it = item(Material.NAME_TAG, "§bPersonalizar nome", lore.toArray(new String[0]));
+        var meta = it.getItemMeta();
+        meta.getPersistentDataContainer().set(navKey, PersistentDataType.STRING, "petname");
+        it.setItemMeta(meta);
+        return it;
     }
 
     private void selectPet(Player p, Pet pet) {
@@ -891,6 +935,8 @@ public final class LobbyHotbar implements Listener {
         activePetType.remove(id);
         petDir.remove(id);       // reset anchor so the new pet seeds fresh
         petOwnerLast.remove(id);
+        petGround.remove(id);
+        petName.remove(id);      // a custom name belongs to the pet that's leaving
         if (pet == Pet.NONE) {
             p.sendActionBar(Component.text("Pet removido", NamedTextColor.GRAY));
         } else {
@@ -903,6 +949,103 @@ public final class LobbyHotbar implements Listener {
         }
         saveCosmetics(p);
         openPets(p);
+    }
+
+    // ── pet naming ──
+
+    /** Close the menu and listen for the next chat line as the new pet name. */
+    private void promptPetName(Player p) {
+        if (activePetType.getOrDefault(p.getUniqueId(), Pet.NONE) == Pet.NONE) {
+            p.sendActionBar(MM.deserialize("<red>Ative um pet primeiro!"));
+            return;
+        }
+        awaitingPetName.add(p.getUniqueId());
+        p.closeInventory();
+        p.sendMessage(MM.deserialize("<yellow>Digite no chat o novo nome do pet "
+                + "<gray>(ou <white>cancelar<gray> para sair, <white>remover<gray> para limpar)."));
+    }
+
+    /** Clear the custom name from the live pet and the saved selection. */
+    private void clearPetName(Player p) {
+        UUID id = p.getUniqueId();
+        petName.remove(id);
+        applyPetNameTo(activePet.get(id), null);
+        saveCosmetics(p);
+        p.sendActionBar(MM.deserialize("<gray>Nome do pet removido."));
+        if (p.getOpenInventory().getTopInventory().getHolder() instanceof MenuHolder) {
+            openPets(p); // refresh the button label if the menu is still open
+        }
+    }
+
+    /** Chat fires off the main thread; cancel there, then apply back on the main thread. */
+    @EventHandler
+    public void onChat(AsyncChatEvent event) {
+        Player p = event.getPlayer();
+        if (!awaitingPetName.remove(p.getUniqueId())) {
+            return;
+        }
+        event.setCancelled(true); // never broadcast the rename text
+        String raw = PlainTextComponentSerializer.plainText().serialize(event.message());
+        Bukkit.getScheduler().runTask(plugin, () -> applyPetName(p, raw));
+    }
+
+    private void applyPetName(Player p, String raw) {
+        if (!p.isOnline()) {
+            return;
+        }
+        UUID id = p.getUniqueId();
+        String trimmed = raw == null ? "" : raw.trim();
+        if (trimmed.equalsIgnoreCase("cancelar")) {
+            p.sendActionBar(MM.deserialize("<gray>Renomear cancelado."));
+            return;
+        }
+        if (trimmed.equalsIgnoreCase("remover") || trimmed.equalsIgnoreCase("limpar")) {
+            clearPetName(p);
+            return;
+        }
+        if (activePetType.getOrDefault(id, Pet.NONE) == Pet.NONE) {
+            p.sendActionBar(MM.deserialize("<red>Você não tem um pet ativo."));
+            return;
+        }
+        String clean = sanitizePetName(trimmed);
+        if (clean.isEmpty()) {
+            p.sendActionBar(MM.deserialize("<red>Nome inválido, tente outro."));
+            return;
+        }
+        petName.put(id, clean);
+        applyPetNameTo(activePet.get(id), clean);
+        saveCosmetics(p);
+        // Build the message literally — never feed player text back through MiniMessage.
+        p.sendActionBar(Component.text("Nome do pet definido: ", NamedTextColor.GREEN)
+                .append(Component.text(clean, NamedTextColor.WHITE)));
+    }
+
+    /** Strip colour/format codes and control chars, collapse whitespace, cap length —
+     *  the result is shown verbatim as the pet's floating name. */
+    private String sanitizePetName(String input) {
+        String stripped = input
+                .replaceAll("[§&][0-9A-Fa-fK-Ok-or]", "") // legacy colour/format codes
+                .replaceAll("\\p{Cntrl}", "")
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (stripped.length() > PET_NAME_MAX) {
+            stripped = stripped.substring(0, PET_NAME_MAX).trim();
+        }
+        return stripped;
+    }
+
+    /** Apply (or clear, when {@code name} is null/blank) a pet's floating name. */
+    private void applyPetNameTo(Entity pet, String name) {
+        if (pet == null || pet.isDead()) {
+            return;
+        }
+        if (name == null || name.isBlank()) {
+            pet.customName(null);
+            pet.setCustomNameVisible(false);
+        } else {
+            pet.customName(Component.text(name));
+            pet.setCustomNameVisible(true);
+        }
     }
 
     private Entity spawnPet(Player p, Pet pet) {
@@ -926,6 +1069,7 @@ public final class LobbyHotbar implements Listener {
             if (pet.baby && e instanceof Ageable age) {
                 age.setBaby();
             }
+            applyPetNameTo(e, petName.get(p.getUniqueId())); // restore a saved custom name
             return e;
         } catch (Exception ex) {
             plugin.getLogger().warning("Falha ao criar pet " + pet + ": " + ex.getMessage());
@@ -1022,12 +1166,48 @@ public final class LobbyHotbar implements Listener {
     private Location petTarget(Location ol, Vector dir, UUID id) {
         Vector side = new Vector(-dir.getZ(), 0, dir.getX()).multiply(0.6);
         Location target = ol.clone().add(dir.clone().multiply(-1.2)).add(side);
-        target.setY(ol.getY());
         Pet type = activePetType.get(id);
         if (type != null && type.flying) {
-            target.add(0, 1.1, 0); // aerial pets hover at head height
+            target.setY(ol.getY() + AERIAL_OFFSET); // aerial pets hover at head height
+        } else {
+            // Grounded pets stay on the floor even when the owner flies above it.
+            target.setY(groundYUnder(id, target, ol));
         }
         return target;
+    }
+
+    /**
+     * The floor Y a grounded pet should rest at, sampled at its anchor's column. A
+     * downward ray from near the owner's height respects bridges/overhangs (so the
+     * pet walks under them, not on the roof). The sample is cached per block column
+     * — and {@link #anchorDir} only shifts the anchor when the owner truly moves —
+     * so an idle pet costs no ray-traces. {@code getHighestBlockYAt} is the cheap
+     * fallback when the ray finds nothing (the owner is flying high, or over a gap).
+     */
+    private double groundYUnder(UUID id, Location anchor, Location owner) {
+        int bx = anchor.getBlockX();
+        int bz = anchor.getBlockZ();
+        GroundSample cached = petGround.get(id);
+        if (cached != null && cached.blockX() == bx && cached.blockZ() == bz) {
+            return cached.y();
+        }
+        org.bukkit.World world = anchor.getWorld();
+        double startY = Math.min(owner.getY() + 1.0, world.getMaxHeight());
+        Location from = new Location(world, anchor.getX(), startY, anchor.getZ());
+        RayTraceResult hit = world.rayTraceBlocks(
+                from, new Vector(0, -1, 0), GROUND_SCAN_DEPTH, FluidCollisionMode.NEVER, true);
+        double y;
+        if (hit != null) {
+            y = hit.getHitPosition().getY();
+        } else {
+            y = world.getHighestBlockYAt(bx, bz) + 1.0;
+            // Highest block sits above the owner (cave/overhang) → keep the last sample.
+            if (cached != null && y > owner.getY() + 1.0) {
+                y = cached.y();
+            }
+        }
+        petGround.put(id, new GroundSample(bx, bz, y));
+        return y;
     }
 
     /** Yaw (degrees) pointing from {@code from} toward {@code to}, ignoring pitch. */
@@ -1133,6 +1313,14 @@ public final class LobbyHotbar implements Listener {
                     if (old != null && !old.isDead()) {
                         old.remove();
                     }
+                    // Seed the saved name before spawning so spawnPet applies it.
+                    String savedName = node.path("petName").asText(null);
+                    if (savedName != null) {
+                        String clean = sanitizePetName(savedName);
+                        if (!clean.isEmpty()) {
+                            petName.put(id, clean);
+                        }
+                    }
                     Entity e = spawnPet(p, pt);
                     if (e != null) {
                         activePet.put(id, e);
@@ -1161,6 +1349,10 @@ public final class LobbyHotbar implements Listener {
         Pet pet = activePetType.get(id);
         if (pet != null && pet != Pet.NONE) {
             root.put("pet", pet.name());
+            String name = petName.get(id);
+            if (name != null && !name.isBlank()) {
+                root.put("petName", name); // nested with the pet, never orphaned
+            }
         }
         Map<ArmorSlot, Armor> armor = activeArmor.get(id);
         if (armor != null && !armor.isEmpty()) {
@@ -1265,7 +1457,7 @@ public final class LobbyHotbar implements Listener {
         p.sendPluginMessage(plugin, "BungeeCord", out.toByteArray());
     }
 
-    private void handleMenuClick(Player p, MenuHolder menu, ItemStack clicked) {
+    private void handleMenuClick(Player p, MenuHolder menu, ItemStack clicked, boolean shift) {
         if (clicked == null || clicked.getItemMeta() == null) {
             return;
         }
@@ -1337,8 +1529,16 @@ public final class LobbyHotbar implements Listener {
                 }
             }
             case "pets" -> {
-                String id = clicked.getItemMeta().getPersistentDataContainer()
-                        .get(petKey, PersistentDataType.STRING);
+                var pdc = clicked.getItemMeta().getPersistentDataContainer();
+                if (pdc.has(navKey, PersistentDataType.STRING)) { // the rename button
+                    if (shift) {
+                        clearPetName(p);
+                    } else {
+                        promptPetName(p);
+                    }
+                    return;
+                }
+                String id = pdc.get(petKey, PersistentDataType.STRING);
                 if (id != null) {
                     try {
                         selectPet(p, Pet.valueOf(id));
@@ -1403,8 +1603,9 @@ public final class LobbyHotbar implements Listener {
 
     /** The player's cargo tag (e.g. [CEO]) as a Component, defaulting to [MEMBRO]. */
     private Component resolveCargo(Player p) {
+        String overrideId = TagOverrides.read(crystal.redis(), p.getUniqueId());
         CargoResolver.Cargo c = CargoResolver.resolve(
-                crystal.configProvider().get("chat"), p::hasPermission);
+                crystal.configProvider().get("chat"), overrideId, p::hasPermission);
         String prefix = c == null ? "<gray>[MEMBRO]" : c.prefix();
         return line(prefix);
     }

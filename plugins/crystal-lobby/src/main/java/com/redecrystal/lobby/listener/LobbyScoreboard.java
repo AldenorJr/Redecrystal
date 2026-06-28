@@ -1,7 +1,8 @@
-package com.redecrystal.lobby;
+package com.redecrystal.lobby.listener;
 
 import com.redecrystal.core.CrystalCore;
 import com.redecrystal.core.cargo.CargoResolver;
+import com.redecrystal.core.cargo.TagOverrides;
 import java.util.ArrayList;
 import java.util.List;
 import net.kyori.adventure.text.Component;
@@ -91,8 +92,9 @@ public final class LobbyScoreboard implements Listener {
     /** The 8 sidebar lines, top to bottom. */
     private List<Component> lines(Player p) {
         int online = (int) crystal.redis().onlineCount();
+        String overrideId = TagOverrides.read(crystal.redis(), p.getUniqueId());
         CargoResolver.Cargo cargo = CargoResolver.resolve(
-                crystal.configProvider().get("chat"), p::hasPermission);
+                crystal.configProvider().get("chat"), overrideId, p::hasPermission);
         String cargoMini = cargo == null ? "<gray>[MEMBRO]" : cargo.prefix();
 
         List<Component> l = new ArrayList<>();
