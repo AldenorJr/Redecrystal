@@ -15,7 +15,11 @@ import com.sk89q.worldedit.session.ClipboardHolder;
 import java.io.File;
 import java.io.FileInputStream;
 import org.bukkit.Bukkit;
+import org.bukkit.Difficulty;
+import org.bukkit.GameRule;
 import org.bukkit.World;
+import org.bukkit.entity.Enemy;
+import org.bukkit.entity.Entity;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /**
@@ -32,6 +36,10 @@ public final class CrystalWorldInitPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        // Hub world rules — re-applied on every boot (idempotent), independent of
+        // the one-time schematic paste. A little after enable so the world is ready.
+        Bukkit.getScheduler().runTaskLater(this, this::lockWorld, 40L);
+
         String schemPath = env("CRYSTAL_WORLD_SCHEMATIC", "");
         if (schemPath.isBlank()) {
             getLogger().info("CRYSTAL_WORLD_SCHEMATIC not set — nothing to initialize.");
@@ -44,6 +52,36 @@ public final class CrystalWorldInitPlugin extends JavaPlugin {
         }
         // Paste a little after enable so the world + FAWE are fully ready.
         Bukkit.getScheduler().runTaskLater(this, () -> paste(schemPath, marker), 40L);
+    }
+
+    /**
+     * Lock the hub world into a calm, static state: eternal day (no day/night
+     * cycle), clear weather, peaceful difficulty and no natural mob spawning — so
+     * no phantoms harass idle players and nothing hostile ever appears. Cosmetic
+     * pets are spawned by the lobby plugin via the API (CUSTOM reason) and are
+     * passive, so they are unaffected by these rules.
+     */
+    private void lockWorld() {
+        World world = Bukkit.getWorld(env("CRYSTAL_WORLD", "world"));
+        if (world == null) {
+            getLogger().warning("World not found for rule lock: " + env("CRYSTAL_WORLD", "world"));
+            return;
+        }
+        world.setDifficulty(Difficulty.PEACEFUL);            // no hostile mobs / phantom damage
+        world.setGameRule(GameRule.DO_DAYLIGHT_CYCLE, false);
+        world.setTime(6000L);                                // fixed midday
+        world.setGameRule(GameRule.DO_WEATHER_CYCLE, false);
+        world.setStorm(false);
+        world.setThundering(false);
+        world.setGameRule(GameRule.DO_INSOMNIA, false);      // never spawn phantoms
+        world.setGameRule(GameRule.DO_MOB_SPAWNING, false);  // hub has no natural spawns
+        // Remove anything hostile that spawned before the rules took effect.
+        for (Entity e : world.getEntities()) {
+            if (e instanceof Enemy) {
+                e.remove();
+            }
+        }
+        getLogger().info("Hub world rules locked: peaceful, eternal day, clear weather, no spawns.");
     }
 
     private void paste(String schemPath, File marker) {
