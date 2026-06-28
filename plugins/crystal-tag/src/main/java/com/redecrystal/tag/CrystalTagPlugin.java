@@ -27,7 +27,8 @@ public final class CrystalTagPlugin extends JavaPlugin {
         pm.registerEvents(nametags, this);
         nametags.start();
         TagSelectorMenu selector = new TagSelectorMenu(this, crystal);
-        TagEditorMenu editor = new TagEditorMenu(); // full wiring in Task 6
+        TagEditorMenu editor = new TagEditorMenu(this, crystal);
+        pm.registerEvents(editor, this);
         pm.registerEvents(selector, this);
         getCommand("tag").setExecutor(new TagCommand(selector, editor));
         getLogger().info("CrystalTag enabled.");
