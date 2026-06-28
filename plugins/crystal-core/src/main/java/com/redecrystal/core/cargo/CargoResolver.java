@@ -3,6 +3,7 @@ package com.redecrystal.core.cargo;
 import com.redecrystal.core.http.RemoteConfig;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
@@ -27,12 +28,23 @@ public final class CargoResolver {
      * @param hasPermission predicate over permission nodes
      * @return the highest-weight matching cargo, or {@code null} if none match
      */
-    @SuppressWarnings("unchecked")
     public static Cargo resolve(RemoteConfig chatConfig, Predicate<String> hasPermission) {
+        return resolve(chatConfig, null, hasPermission);
+    }
+
+    /**
+     * Same as {@link #resolve(RemoteConfig, Predicate)} but an {@code overrideId}
+     * (admin "test" tag) wins when it names a defined cargo — regardless of the
+     * player's permissions. A {@code null}/blank/unknown override falls back to the
+     * permission-based resolution.
+     */
+    @SuppressWarnings("unchecked")
+    public static Cargo resolve(RemoteConfig chatConfig, String overrideId, Predicate<String> hasPermission) {
         if (chatConfig == null || !(chatConfig.value("roles") instanceof Map<?, ?> rolesMap)) {
             return null;
         }
         List<Cargo> roles = new ArrayList<>();
+        Map<String, String> permissions = new HashMap<>();
         for (Map.Entry<?, ?> entry : rolesMap.entrySet()) {
             String id = String.valueOf(entry.getKey());
             if (!(entry.getValue() instanceof Map<?, ?> data)) {
@@ -44,21 +56,22 @@ public final class CargoResolver {
             String prefix = m.get("prefix") == null ? "" : String.valueOf(m.get("prefix"));
             String nameColor = m.get("nameColor") == null ? "" : String.valueOf(m.get("nameColor"));
             roles.add(new Cargo(id, prefix, nameColor, weight));
+            permissions.put(id, permission);
+        }
+        // An admin-set override wins, if it names a defined cargo.
+        if (overrideId != null && !overrideId.isBlank()) {
+            for (Cargo c : roles) {
+                if (c.id().equals(overrideId)) {
+                    return c;
+                }
+            }
         }
         roles.sort(Comparator.comparingInt(Cargo::weight).reversed());
         for (Cargo c : roles) {
-            if (hasPermission.test("tag." + c.id()) || hasPermission.test(permissionOf(rolesMap, c.id()))) {
+            if (hasPermission.test("tag." + c.id()) || hasPermission.test(permissions.get(c.id()))) {
                 return c;
             }
         }
         return null;
-    }
-
-    private static String permissionOf(Map<?, ?> rolesMap, String id) {
-        Object v = rolesMap.get(id);
-        if (v instanceof Map<?, ?> m && m.get("permission") != null) {
-            return String.valueOf(m.get("permission"));
-        }
-        return "tag." + id;
     }
 }
