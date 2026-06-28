@@ -218,6 +218,7 @@ services:
       - ./EXTERNAL_PLUGINS/LuckPerms-Bukkit-5.5.53.jar:/plugins/LuckPerms.jar:ro
       - ./plugins/crystal-tab/target/crystal-tab.jar:/plugins/crystal-tab.jar:ro
       - ./plugins/crystal-tag/target/crystal-tag.jar:/plugins/crystal-tag.jar:ro
+      - ./plugins/crystal-skin/target/crystal-skin.jar:/plugins/crystal-skin.jar:ro
 
   # ── Minecraft: lobby fleet (Paper). Horizontally scalable: each instance is
   #    the SAME definition with a different SERVER_ID. crystal-bungee discovers
@@ -263,6 +264,7 @@ services:
       - ./plugins/crystal-tab/target/crystal-tab.jar:/plugins/crystal-tab.jar:ro
       - ./plugins/crystal-tag/target/crystal-tag.jar:/plugins/crystal-tag.jar:ro
       - ./plugins/crystal-skin/target/crystal-skin.jar:/plugins/crystal-skin.jar:ro
+      - ./plugins/crystal-skin/target/crystal-skin.jar:/plugins/crystal-skin.jar:ro
 
   lobby-02:
     image: itzg/minecraft-server:java21
@@ -287,6 +289,7 @@ services:
       - ./plugins/crystal-tab/target/crystal-tab.jar:/plugins/crystal-tab.jar:ro
       - ./plugins/crystal-tag/target/crystal-tag.jar:/plugins/crystal-tag.jar:ro
       - ./plugins/crystal-skin/target/crystal-skin.jar:/plugins/crystal-skin.jar:ro
+      - ./plugins/crystal-skin/target/crystal-skin.jar:/plugins/crystal-skin.jar:ro
 
   lobby-03:
     image: itzg/minecraft-server:java21
@@ -310,6 +313,7 @@ services:
       - ./EXTERNAL_PLUGINS/LuckPerms-Bukkit-5.5.53.jar:/plugins/LuckPerms.jar:ro
       - ./plugins/crystal-tab/target/crystal-tab.jar:/plugins/crystal-tab.jar:ro
       - ./plugins/crystal-tag/target/crystal-tag.jar:/plugins/crystal-tag.jar:ro
+      - ./plugins/crystal-skin/target/crystal-skin.jar:/plugins/crystal-skin.jar:ro
       - ./plugins/crystal-skin/target/crystal-skin.jar:/plugins/crystal-skin.jar:ro
 
   # ── Observability ──
