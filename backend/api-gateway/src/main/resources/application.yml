@@ -10,6 +10,10 @@ spring:
     gateway:
       # Explicit routes keep clean external paths (no service-name prefix).
       routes:
+        - id: core-auth
+          uri: lb://core-service
+          predicates:
+            - Path=/api/auth/**
         - id: core-config
           uri: lb://core-service
           predicates:

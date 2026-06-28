@@ -42,6 +42,8 @@ public final class RedisClient implements AutoCloseable {
         sync.setex(key, ttl.toSeconds(), value);
     }
     public void del(String key)                    { sync.del(key); }
+    public long incr(String key)                   { return sync.incr(key); }
+    public void expire(String key, Duration ttl)   { sync.expire(key, ttl.toSeconds()); }
 
     // ── online players (set) ──
     public void addOnlinePlayer(String uuid)       { sync.sadd(ONLINE_PLAYERS_KEY, uuid); }

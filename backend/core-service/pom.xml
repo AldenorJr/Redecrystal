@@ -43,6 +43,12 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
+        <!-- Password hashing (bcrypt). Crypto only — no full spring-security here. -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
         <!-- Messaging (Apache Kafka) -->
         <dependency>
             <groupId>org.springframework.kafka</groupId>

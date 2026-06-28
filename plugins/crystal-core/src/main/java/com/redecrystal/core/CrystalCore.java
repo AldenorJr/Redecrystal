@@ -6,6 +6,7 @@ import com.redecrystal.core.http.BackendHttpClient;
 import com.redecrystal.core.messaging.KafkaClient;
 import com.redecrystal.core.messaging.KafkaTopics;
 import com.redecrystal.core.redis.RedisClient;
+import com.redecrystal.core.security.JwtCodec;
 import java.lang.management.ManagementFactory;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -35,6 +36,7 @@ public final class CrystalCore implements AutoCloseable {
     private final KafkaClient kafka;
     private final EventBus events;
     private final ConfigProvider configProvider;
+    private final JwtCodec jwtCodec;
     private final ScheduledExecutorService scheduler =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "crystal-heartbeat");
@@ -49,6 +51,7 @@ public final class CrystalCore implements AutoCloseable {
         this.kafka = new KafkaClient(config.kafkaBrokers(), config.serverId());
         this.events = new EventBus();
         this.configProvider = new ConfigProvider(backend, events);
+        this.jwtCodec = new JwtCodec(config.jwtSecret());
     }
 
     /** Build and start the SDK: Kafka consumer feeding the event bus. */
@@ -105,6 +108,7 @@ public final class CrystalCore implements AutoCloseable {
     public KafkaClient kafka()            { return kafka; }
     public EventBus events()              { return events; }
     public ConfigProvider configProvider(){ return configProvider; }
+    public JwtCodec jwtCodec()            { return jwtCodec; }
 
     @Override
     public void close() {

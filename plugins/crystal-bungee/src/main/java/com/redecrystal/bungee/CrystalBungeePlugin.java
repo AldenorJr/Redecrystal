@@ -5,20 +5,28 @@ import com.redecrystal.core.CrystalConfig;
 import com.redecrystal.core.CrystalCore;
 import com.redecrystal.core.http.NetworkServer;
 import com.redecrystal.core.messaging.KafkaTopics;
+import com.redecrystal.core.security.JwtCodec;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.LoginEvent;
+import com.velocitypowered.api.event.connection.PluginMessageEvent;
 import com.velocitypowered.api.event.player.PlayerChooseInitialServerEvent;
+import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyPingEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Plugin;
+import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
+import com.velocitypowered.api.proxy.ServerConnection;
+import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.api.proxy.server.ServerInfo;
 import com.velocitypowered.api.proxy.server.ServerPing;
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -49,6 +57,12 @@ public final class CrystalBungeePlugin {
     private static final String LOGIN_SERVER = "login";
     private static final String LOBBY_TYPE = "lobby";
     private static final String GLOBAL_CONFIG = "global";
+    private static final String JWT_KEY_PREFIX = "jwt:";
+    private static final String SESSION_KEY_PREFIX = "session:";
+
+    /** The login server hands us a verified player JWT over this channel. */
+    private static final MinecraftChannelIdentifier AUTH_CHANNEL =
+            MinecraftChannelIdentifier.create("crystal", "auth");
 
     private final ProxyServer proxy;
     private final Logger logger;
@@ -56,6 +70,12 @@ public final class CrystalBungeePlugin {
 
     /** Recently-routed players per lobby, smoothing balance between heartbeats. */
     private final Map<String, AtomicInteger> pending = new ConcurrentHashMap<>();
+
+    /** Players whose JWT the login server verified — the gate's allow-list. */
+    private final Map<UUID, JwtCodec.Claims> authed = new ConcurrentHashMap<>();
+
+    /** Authenticated players parked because no lobby was online; drained on lobby start. */
+    private final Set<UUID> waitingForLobby = ConcurrentHashMap.newKeySet();
 
     @Inject
     public CrystalBungeePlugin(ProxyServer proxy, Logger logger) {
@@ -76,22 +96,16 @@ public final class CrystalBungeePlugin {
         registerWithRetry();
         crystal.startHeartbeat(proxy::getPlayerCount);
 
-        // Discover the lobby fleet now and keep it in sync.
+        // The login server hands us verified JWTs over this channel.
+        proxy.getChannelRegistrar().register(AUTH_CHANNEL);
+
+        // Discover the lobby fleet now and keep it in sync. Each sync also drains
+        // any players parked waiting for a lobby to come online.
         syncLobbies();
         proxy.getScheduler().buildTask(this, this::syncLobbies)
                 .repeat(Duration.ofSeconds(10)).schedule();
         crystal.events().on(KafkaTopics.SERVER_STARTED, e -> syncLobbies());
         crystal.events().on(KafkaTopics.SERVER_STOPPED, e -> syncLobbies());
-
-        // Event-driven handoff: when login authenticates a player, route them to
-        // the least-loaded lobby. Routing stays on the proxy.
-        crystal.events().on(KafkaTopics.PLAYER_AUTHENTICATED, authEvent -> {
-            String uuid = authEvent.get("uuid");
-            if (uuid == null) {
-                return;
-            }
-            proxy.getPlayer(UUID.fromString(uuid)).ifPresent(this::routeToLobby);
-        });
 
         logger.info("CrystalBungee enabled.");
     }
@@ -144,25 +158,47 @@ public final class CrystalBungeePlugin {
         } catch (Exception e) {
             logger.warn("Lobby sync failed: {}", e.toString());
         }
+        // A lobby may have just come online — try to release anyone who was waiting.
+        drainWaitingForLobby();
     }
 
-    /** Pick the least-loaded online lobby and connect the player to it. */
-    private void routeToLobby(com.velocitypowered.api.proxy.Player player) {
-        List<NetworkServer> lobbies = crystal.backend().listServers(LOBBY_TYPE);
-        Optional<NetworkServer> best = lobbies.stream()
-                .filter(NetworkServer::isOnline)
-                .min(Comparator.comparingInt(s ->
-                        s.onlinePlayers() + pending.getOrDefault(s.serverId(), new AtomicInteger()).get()));
+    /**
+     * Route an authenticated player to the least-loaded online lobby. If none is
+     * online, park them on login and retry on the next lobby start / sync tick.
+     */
+    private void routeToLobby(Player player) {
+        Optional<NetworkServer> best = pickLobby();
         if (best.isEmpty()) {
-            logger.warn("No lobby available for {}", player.getUsername());
+            waitingForLobby.add(player.getUniqueId());
+            player.sendActionBar(Component.text("Procurando um lobby disponível...", PURPLE_SOFT));
+            logger.info("No lobby online; {} is waiting for one to start", player.getUsername());
             return;
         }
         String target = best.get().serverId();
         proxy.getServer(target).ifPresent(server -> {
             pending.computeIfAbsent(target, k -> new AtomicInteger()).incrementAndGet();
+            waitingForLobby.remove(player.getUniqueId());
             player.createConnectionRequest(server).fireAndForget();
             logger.info("Routed {} to {} (least-loaded)", player.getUsername(), target);
         });
+    }
+
+    /** The least-loaded online lobby, accounting for in-flight routes. */
+    private Optional<NetworkServer> pickLobby() {
+        return crystal.backend().listServers(LOBBY_TYPE).stream()
+                .filter(NetworkServer::isOnline)
+                .min(Comparator.comparingInt(s ->
+                        s.onlinePlayers() + pending.getOrDefault(s.serverId(), new AtomicInteger()).get()));
+    }
+
+    /** Retry routing every parked player; drops those who disconnected. */
+    private void drainWaitingForLobby() {
+        if (waitingForLobby.isEmpty()) {
+            return;
+        }
+        for (UUID uuid : Set.copyOf(waitingForLobby)) {
+            proxy.getPlayer(uuid).ifPresentOrElse(this::routeToLobby, () -> waitingForLobby.remove(uuid));
+        }
     }
 
     @Subscribe
@@ -241,10 +277,85 @@ public final class CrystalBungeePlugin {
         proxy.getServer(LOGIN_SERVER).ifPresent(event::setInitialServer);
     }
 
+    /**
+     * The login server's handshake: a verified player JWT. We re-verify the
+     * signature here (offline), confirm the session wasn't revoked (Redis
+     * {@code jwt:{uuid}} still holds this token's {@code sid}), record the player
+     * as authenticated, and route them to a lobby. Only after this does the
+     * connect gate ({@link #onServerPreConnect}) let them onto a backend server.
+     */
+    @Subscribe
+    public void onAuthHandshake(PluginMessageEvent event) {
+        if (!AUTH_CHANNEL.equals(event.getIdentifier())) {
+            return;
+        }
+        // Consume it: never forward the token on to the client.
+        event.setResult(PluginMessageEvent.ForwardResult.handled());
+        // Only the backend (login server) may assert authentication, never a client.
+        if (!(event.getSource() instanceof ServerConnection)) {
+            return;
+        }
+
+        String token = new String(event.getData(), StandardCharsets.UTF_8);
+        Optional<JwtCodec.Claims> verified = crystal.jwtCodec().verify(token);
+        if (verified.isEmpty()) {
+            logger.warn("Rejected an invalid auth handshake token");
+            return;
+        }
+        JwtCodec.Claims claims = verified.get();
+        if (isRevoked(claims)) {
+            logger.warn("Rejected a revoked/superseded session for {}", claims.username());
+            return;
+        }
+
+        authed.put(claims.uuid(), claims);
+        proxy.getPlayer(claims.uuid()).ifPresent(this::routeToLobby);
+    }
+
+    /**
+     * The gate that makes login non-bypassable: a player may only reach the login
+     * server or — once authenticated with a still-valid JWT — a lobby. Any other
+     * connection attempt (e.g. a direct {@code /server lobby}) is denied.
+     */
+    @Subscribe
+    public void onServerPreConnect(ServerPreConnectEvent event) {
+        String target = event.getOriginalServer().getServerInfo().getName();
+        if (LOGIN_SERVER.equals(target)) {
+            return; // login is always reachable
+        }
+        JwtCodec.Claims claims = authed.get(event.getPlayer().getUniqueId());
+        if (claims == null || claims.expiresAtEpochSec() <= Instant.now().getEpochSecond()) {
+            event.setResult(ServerPreConnectEvent.ServerResult.denied());
+            logger.warn("Denied {} -> {}: not authenticated", event.getPlayer().getUsername(), target);
+        }
+    }
+
+    /** A session is revoked if Redis holds a different sid for this player. */
+    private boolean isRevoked(JwtCodec.Claims claims) {
+        try {
+            String activeSid = crystal.redis().get(JWT_KEY_PREFIX + claims.uuid());
+            // null => Redis down or key expired: trust the (valid) signature, fail open.
+            return activeSid != null && !activeSid.equals(claims.sessionId());
+        } catch (Exception e) {
+            logger.warn("Revocation check failed for {} (allowing): {}", claims.username(), e.toString());
+            return false;
+        }
+    }
+
     @Subscribe
     public void onDisconnect(DisconnectEvent event) {
-        String uuid = event.getPlayer().getUniqueId().toString();
+        UUID id = event.getPlayer().getUniqueId();
+        String uuid = id.toString();
+        authed.remove(id);
+        waitingForLobby.remove(id);
         crystal.redis().removeOnlinePlayer(uuid);
+        // Revoke the session so a stale token can't be replayed after logout.
+        try {
+            crystal.redis().del(JWT_KEY_PREFIX + uuid);
+            crystal.redis().del(SESSION_KEY_PREFIX + uuid);
+        } catch (Exception e) {
+            logger.warn("Session cleanup failed for {}: {}", event.getPlayer().getUsername(), e.toString());
+        }
         crystal.kafka().publish(KafkaTopics.PLAYER_DISCONNECTED, uuid, Map.of(
                 "player", event.getPlayer().getUsername(),
                 "uuid", uuid,
