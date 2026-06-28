@@ -10,8 +10,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.entity.Player;
@@ -49,8 +47,9 @@ public final class NametagService implements Listener {
         this.crystal = crystal;
     }
 
-    /** A target's resolved tag, computed once per tick and applied to every board. */
-    private record Resolved(String teamName, Component prefix, NamedTextColor color) { }
+    /** A target's resolved tag, computed once per tick and applied to every board.
+     *  The name itself is always white (the team's default colour). */
+    private record Resolved(String teamName, Component prefix) { }
 
     public void start() {
         plugin.getServer().getScheduler().runTaskTimer(plugin, this::refresh, REFRESH_TICKS, REFRESH_TICKS);
@@ -106,15 +105,17 @@ public final class NametagService implements Listener {
     private Resolved resolve(RemoteConfig chat, String overrideId, Player target) {
         CargoResolver.Cargo cargo = CargoResolver.resolve(chat, overrideId, target::hasPermission);
         if (cargo == null) {
-            return new Resolved(DEFAULT_TEAM, Component.empty(), null);
+            return new Resolved(DEFAULT_TEAM, Component.empty());
         }
         Component prefix = cargo.prefix().isEmpty()
                 ? Component.empty()
                 : parse(cargo.prefix()).append(Component.space());
-        return new Resolved(teamName(cargo.id()), prefix, nearest(cargo.nameColor()));
+        return new Resolved(teamName(cargo.id()), prefix);
     }
 
-    /** Ensure {@code entry} sits in its cargo team with the right prefix/color. */
+    /** Ensure {@code entry} sits in its cargo team with the right prefix. The name
+     *  stays white (the team's default colour); we never set a team colour, which
+     *  also avoids the {@code team.color()} "must have hex values" pitfall. */
     private void apply(Scoreboard board, String entry, Resolved r) {
         Team team = board.getTeam(r.teamName());
         if (team == null) {
@@ -123,11 +124,7 @@ public final class NametagService implements Listener {
         if (!team.prefix().equals(r.prefix())) {
             team.prefix(r.prefix());
         }
-        if (r.color() != null && team.color() != r.color()) {
-            team.color(r.color());
-        }
-        Team current = board.getEntryTeam(entry);
-        if (current != team) {
+        if (board.getEntryTeam(entry) != team) {
             team.addEntry(entry); // moves the entry out of any previous team
         }
     }
@@ -135,16 +132,6 @@ public final class NametagService implements Listener {
     private static String teamName(String cargoId) {
         String name = TEAM_PREFIX + cargoId;
         return name.length() <= MAX_TEAM_NAME ? name : name.substring(0, MAX_TEAM_NAME);
-    }
-
-    /** Best-effort vanilla colour for the name line (the team only accepts one
-     *  {@link NamedTextColor}; hex is mapped to the nearest). */
-    private static NamedTextColor nearest(String nameColor) {
-        if (nameColor == null || nameColor.isBlank()) {
-            return null;
-        }
-        TextColor col = parse(nameColor + "_").color();
-        return col == null ? null : NamedTextColor.nearestTo(col);
     }
 
     /** Parse a MiniMessage string, falling back to legacy '&' codes if present. */
