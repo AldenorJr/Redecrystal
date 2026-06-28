@@ -1,0 +1,15 @@
+name: CrystalTag
+version: 0.1.0
+main: com.redecrystal.tag.CrystalTagPlugin
+api-version: '1.21'
+author: RedeCrystal
+description: Nametag acima da cabeça e comando /tag (admin), driven by central config.
+depend: [LuckPerms]
+commands:
+  tag:
+    description: Selecionar, atribuir e editar tags (admin)
+    usage: /tag [jogador|editar]
+permissions:
+  crystal.tag.admin:
+    description: Selecionar, atribuir e editar tags
+    default: op
