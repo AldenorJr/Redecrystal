@@ -28,6 +28,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
@@ -74,6 +75,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class LobbyHotbar implements Listener {
 
     private static final MiniMessage MM = MiniMessage.miniMessage();
+    /** Pet names support legacy '&' colour/format codes (no MiniMessage, so no tag injection). */
+    private static final LegacyComponentSerializer LEGACY = LegacyComponentSerializer.legacyAmpersand();
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     private static final String VIP_PERM = "crystal.cosmetic.vip";
 
@@ -962,7 +965,8 @@ public final class LobbyHotbar implements Listener {
         awaitingPetName.add(p.getUniqueId());
         p.closeInventory();
         p.sendMessage(MM.deserialize("<yellow>Digite no chat o novo nome do pet "
-                + "<gray>(ou <white>cancelar<gray> para sair, <white>remover<gray> para limpar)."));
+                + "<gray>(use cores com <white>&a<gray>, <white>&b<gray>…; "
+                + "<white>cancelar<gray> para sair, <white>remover<gray> para limpar)."));
     }
 
     /** Clear the custom name from the live pet and the saved selection. */
@@ -1015,23 +1019,33 @@ public final class LobbyHotbar implements Listener {
         petName.put(id, clean);
         applyPetNameTo(activePet.get(id), clean);
         saveCosmetics(p);
-        // Build the message literally — never feed player text back through MiniMessage.
+        // Render via legacy '&' codes (not MiniMessage), so colours show but no tags inject.
         p.sendActionBar(Component.text("Nome do pet definido: ", NamedTextColor.GREEN)
-                .append(Component.text(clean, NamedTextColor.WHITE)));
+                .append(LEGACY.deserialize(clean)));
     }
 
-    /** Strip colour/format codes and control chars, collapse whitespace, cap length —
-     *  the result is shown verbatim as the pet's floating name. */
+    /** Normalise a pet name: allow legacy '&' colour/format codes, strip control
+     *  chars, collapse whitespace and cap the *visible* length (codes don't count).
+     *  The raw string (codes included) is stored and rendered as the floating name. */
     private String sanitizePetName(String input) {
-        String stripped = input
-                .replaceAll("[§&][0-9A-Fa-fK-Ok-or]", "") // legacy colour/format codes
+        String cleaned = input
+                .replace('§', '&')           // normalise the section sign to '&'
                 .replaceAll("\\p{Cntrl}", "")
                 .replaceAll("\\s+", " ")
                 .trim();
-        if (stripped.length() > PET_NAME_MAX) {
-            stripped = stripped.substring(0, PET_NAME_MAX).trim();
+        StringBuilder out = new StringBuilder();
+        int visible = 0;
+        for (int i = 0; i < cleaned.length() && visible < PET_NAME_MAX; i++) {
+            char c = cleaned.charAt(i);
+            if (c == '&' && i + 1 < cleaned.length()
+                    && "0123456789AaBbCcDdEeFfKkLlMmNnOoRr".indexOf(cleaned.charAt(i + 1)) >= 0) {
+                out.append(c).append(cleaned.charAt(++i)); // keep the colour/format code pair
+            } else {
+                out.append(c);
+                visible++;
+            }
         }
-        return stripped;
+        return out.toString().trim();
     }
 
     /** Apply (or clear, when {@code name} is null/blank) a pet's floating name. */
@@ -1043,7 +1057,7 @@ public final class LobbyHotbar implements Listener {
             pet.customName(null);
             pet.setCustomNameVisible(false);
         } else {
-            pet.customName(Component.text(name));
+            pet.customName(LEGACY.deserialize(name)); // legacy '&' codes → coloured name
             pet.setCustomNameVisible(true);
         }
     }
