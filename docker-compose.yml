@@ -177,6 +177,7 @@ services:
       - "${MC_PORT:-25565}:25565"
     volumes:
       - ./servers/bungeecord/proxy-01/velocity.toml:/server/velocity.toml
+      - ./servers/bungeecord/proxy-01/server-icon.png:/server/server-icon.png
       - ./plugins/crystal-bungee/target/crystal-bungee.jar:/plugins/crystal-bungee.jar:ro
       - ./EXTERNAL_PLUGINS/ViaVersion-5.10.1-SNAPSHOT.jar:/plugins/ViaVersion.jar:ro
       - ./EXTERNAL_PLUGINS/ViaBackwards-5.10.1-SNAPSHOT.jar:/plugins/ViaBackwards.jar:ro
@@ -213,6 +214,9 @@ services:
       - ./EXTERNAL_PLUGINS/FastAsyncWorldEdit-Paper-2.15.2.jar:/plugins/FastAsyncWorldEdit.jar:ro
       - ./plugins/crystal-worldinit/target/crystal-worldinit.jar:/plugins/crystal-worldinit.jar:ro
       - ./world/WORLD_LOGIN/redhouseterrian.schem:/schematics/redhouseterrian.schem:ro
+      # Tab list matching the rest of the network (role prefixes via LuckPerms).
+      - ./EXTERNAL_PLUGINS/LuckPerms-Bukkit-5.5.53.jar:/plugins/LuckPerms.jar:ro
+      - ./plugins/crystal-tab/target/crystal-tab.jar:/plugins/crystal-tab.jar:ro
 
   # ── Minecraft: lobby fleet (Paper). Horizontally scalable: each instance is
   #    the SAME definition with a different SERVER_ID. crystal-bungee discovers

@@ -127,6 +127,19 @@ public final class CrystalLobbyPlugin extends JavaPlugin implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         String uuid = player.getUniqueId().toString();
+
+        // Defense in depth: the proxy gate should already block unauthenticated
+        // players, but a lobby must never trust a connection without a login
+        // session. Fail open on a Redis error so a hiccup can't mass-kick.
+        try {
+            if (crystal.redis().get("session:" + uuid) == null) {
+                player.kick(Component.text("Sessão inválida — entre pela tela de login.", NamedTextColor.RED));
+                return;
+            }
+        } catch (Exception e) {
+            getLogger().warning("Session check failed for " + player.getName() + " (allowing): " + e);
+        }
+
         crystal.redis().addOnlinePlayer(uuid);
         crystal.kafka().publish(KafkaTopics.PLAYER_CONNECTED, uuid, Map.of(
                 "player", player.getName(), "uuid", uuid, "server", crystal.config().serverId()));

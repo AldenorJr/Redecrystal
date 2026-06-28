@@ -27,6 +27,12 @@ POSTGRES_HOST=postgres
 REDIS_HOST=redis
 REDIS_PORT=6379
 
+# ── Player JWT (login → proxy auth) ──
+# Shared HS256 secret: the backend signs, the proxy verifies. Must be identical
+# across core-service, proxy-01 and login-01 (all load this file).
+JWT_SECRET=change-me-dev-jwt-secret
+JWT_TTL_SECONDS=21600
+
 # ── Kafka ──
 KAFKA_BROKERS=kafka:9092
 

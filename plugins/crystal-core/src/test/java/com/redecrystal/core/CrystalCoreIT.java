@@ -25,7 +25,7 @@ class CrystalCoreIT {
         return new CrystalConfig(
                 "http://localhost:8080", "change-me-dev-service-token",
                 "localhost", 6379, "localhost:29092",
-                "sdk-it-01", "lobby", "localhost", 25565);
+                "sdk-it-01", "lobby", "localhost", 25565, "change-me-dev-jwt-secret");
     }
 
     @Test

@@ -43,6 +43,13 @@ spring:
 server:
   port: ${SERVER_PORT:8081}
 
+# Player JWT signing — the same secret must be shared with the proxy (crystal-bungee)
+# so it can verify tokens offline. TTL aligns with the Redis session:{uuid} window.
+redecrystal:
+  security:
+    jwt-secret: ${JWT_SECRET:change-me-dev-jwt-secret}
+    jwt-ttl-seconds: ${JWT_TTL_SECONDS:21600}
+
 # Eureka service registration.
 eureka:
   client:

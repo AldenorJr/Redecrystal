@@ -76,6 +76,47 @@ public final class BackendHttpClient {
         send("DELETE", "/api/network/" + serverId, null);
     }
 
+    // ── Auth (player JWT) ──
+
+    /** Register a new account and receive a fresh JWT. Premium accounts omit the password. */
+    public AuthToken register(String uuid, String username, boolean premium, String password) {
+        return toAuthToken(send("POST", "/api/auth/register", credentials(uuid, username, premium, password)));
+    }
+
+    /** Authenticate an account (premium auto-registers) and receive a fresh JWT. */
+    public AuthToken login(String uuid, String username, boolean premium, String password) {
+        return toAuthToken(send("POST", "/api/auth/login", credentials(uuid, username, premium, password)));
+    }
+
+    /** Exchange a still-valid token for a new one. */
+    public AuthToken refresh(String token) {
+        return toAuthToken(send("POST", "/api/auth/refresh", Map.of("token", token)));
+    }
+
+    /** Whether the player already has an account (to choose login vs register prompt). */
+    public AccountStatus accountStatus(String uuid) {
+        JsonNode n = send("GET", "/api/auth/account/" + uuid, null);
+        return new AccountStatus(n.path("registered").asBoolean(), n.path("premium").asBoolean());
+    }
+
+    private Map<String, Object> credentials(String uuid, String username, boolean premium, String password) {
+        java.util.Map<String, Object> body = new java.util.HashMap<>();
+        body.put("uuid", uuid);
+        body.put("username", username == null ? "" : username);
+        body.put("premium", premium);
+        if (password != null) body.put("password", password);
+        return body;
+    }
+
+    private AuthToken toAuthToken(JsonNode n) {
+        return new AuthToken(
+                n.path("token").asText(),
+                n.path("expiresAt").asLong(),
+                n.path("uuid").asText(),
+                n.path("username").asText(),
+                n.path("premium").asBoolean());
+    }
+
     // ── Profiles ──
 
     public ProfileData ensureProfile(String uuid, String username) {
@@ -231,7 +272,7 @@ public final class BackendHttpClient {
                 if (sc == 404 && allowNotFound) {
                     return null;
                 }
-                throw new BackendException(method + " " + path + " -> HTTP " + sc + ": " + resp.body());
+                throw new BackendException(sc, method + " " + path + " -> HTTP " + sc + ": " + resp.body());
             } catch (BackendException e) {
                 throw e; // non-2xx is not retryable here
             } catch (Exception e) {
@@ -253,12 +294,26 @@ public final class BackendHttpClient {
 
     /** Raised when a backend call fails (transport error or non-2xx response). */
     public static final class BackendException extends RuntimeException {
+
+        /** HTTP status of the failed response, or 0 for a transport-level error. */
+        private final int statusCode;
+
         public BackendException(String message) {
+            this(0, message);
+        }
+
+        public BackendException(int statusCode, String message) {
             super(message);
+            this.statusCode = statusCode;
         }
 
         public BackendException(String message, Throwable cause) {
             super(message, cause);
+            this.statusCode = 0;
+        }
+
+        public int statusCode() {
+            return statusCode;
         }
     }
 }

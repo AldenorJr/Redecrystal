@@ -17,6 +17,7 @@ package com.redecrystal.core;
  * @param serverType    instance type ("proxy" | "login" | "lobby" | …)
  * @param serverHost    host other components reach this instance at
  * @param serverPort    port this instance listens on
+ * @param jwtSecret     shared HS256 secret for verifying player JWTs (proxy/login)
  */
 public record CrystalConfig(
         String backendUrl,
@@ -27,7 +28,8 @@ public record CrystalConfig(
         String serverId,
         String serverType,
         String serverHost,
-        int serverPort) {
+        int serverPort,
+        String jwtSecret) {
 
     /** Build from environment variables, with dev-friendly defaults. */
     public static CrystalConfig fromEnv() {
@@ -40,7 +42,8 @@ public record CrystalConfig(
                 env("SERVER_ID", "unknown"),
                 env("SERVER_TYPE", "unknown"),
                 env("SERVER_HOST", "localhost"),
-                Integer.parseInt(env("SERVER_PORT", "25565")));
+                Integer.parseInt(env("SERVER_PORT", "25565")),
+                env("JWT_SECRET", "change-me-dev-jwt-secret"));
     }
 
     private static String env(String key, String fallback) {
