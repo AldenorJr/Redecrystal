@@ -29,7 +29,7 @@ public final class CrystalTagPlugin extends JavaPlugin {
         TagSelectorMenu selector = new TagSelectorMenu(this, crystal);
         TagEditorMenu editor = new TagEditorMenu(); // full wiring in Task 6
         pm.registerEvents(selector, this);
-        getCommand("tag").setExecutor(new TagCommand(crystal, selector, editor));
+        getCommand("tag").setExecutor(new TagCommand(selector, editor));
         getLogger().info("CrystalTag enabled.");
     }
 

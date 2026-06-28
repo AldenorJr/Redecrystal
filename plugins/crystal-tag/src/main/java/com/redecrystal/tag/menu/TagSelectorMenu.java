@@ -32,6 +32,7 @@ public final class TagSelectorMenu implements Listener {
 
     private static final String TYPE = "tag:select";
     private static final String REMOVE = "__remove__";
+    private static final String ADMIN_PERM = "crystal.tag.admin";
 
     private final JavaPlugin plugin;
     private final CrystalCore crystal;
@@ -109,6 +110,12 @@ public final class TagSelectorMenu implements Listener {
             return;
         }
         event.setCancelled(true);
+        if (!(event.getWhoClicked() instanceof Player admin)) {
+            return;
+        }
+        if (!admin.hasPermission(ADMIN_PERM)) {
+            return;
+        }
         ItemStack clicked = event.getCurrentItem();
         if (clicked == null || clicked.getItemMeta() == null) {
             return;
@@ -118,7 +125,6 @@ public final class TagSelectorMenu implements Listener {
         if (cargoId == null) {
             return;
         }
-        Player admin = (Player) event.getWhoClicked();
         if (REMOVE.equals(cargoId)) {
             TagOverrides.clear(crystal.redis(), menu.target());
             admin.sendActionBar(Component.text("§aOverride removido de " + menu.targetName()));

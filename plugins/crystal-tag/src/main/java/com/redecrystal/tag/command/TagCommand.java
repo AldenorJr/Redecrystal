@@ -1,6 +1,5 @@
 package com.redecrystal.tag.command;
 
-import com.redecrystal.core.CrystalCore;
 import com.redecrystal.tag.menu.TagEditorMenu;
 import com.redecrystal.tag.menu.TagSelectorMenu;
 import java.nio.charset.StandardCharsets;
@@ -25,7 +24,7 @@ public final class TagCommand implements CommandExecutor {
     private final TagSelectorMenu selector;
     private final TagEditorMenu editor;
 
-    public TagCommand(CrystalCore crystal, TagSelectorMenu selector, TagEditorMenu editor) {
+    public TagCommand(TagSelectorMenu selector, TagEditorMenu editor) {
         this.selector = selector;
         this.editor = editor;
     }
