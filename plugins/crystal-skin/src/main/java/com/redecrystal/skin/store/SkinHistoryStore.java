@@ -43,6 +43,24 @@ public final class SkinHistoryStore {
         return cache.getOrDefault(uuid, SkinHistory.empty());
     }
 
+    /**
+     * Blocking history fetch for the async pre-login path (where doing HTTP is
+     * fine). Warms the in-memory cache so the GUI is ready, and returns the
+     * history (empty on any failure — never throws).
+     */
+    public SkinHistory fetchBlocking(UUID uuid) {
+        try {
+            InventoryData data = crystal.backend().getInventory(uuid.toString(), SKIN_HISTORY_TYPE);
+            version.put(uuid, data.version());
+            SkinHistory history = deserialize(uuid, data);
+            cache.put(uuid, history);
+            return history;
+        } catch (Exception e) {
+            cache.putIfAbsent(uuid, SkinHistory.empty()); // backend down → clean session
+            return SkinHistory.empty();
+        }
+    }
+
     /** Fetch the player's history into the cache on join. Runs off-thread. */
     public void preload(UUID uuid) {
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {

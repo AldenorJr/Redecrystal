@@ -31,7 +31,7 @@ public final class CrystalSkinPlugin extends JavaPlugin {
 
         PluginManager pm = getServer().getPluginManager();
         pm.registerEvents(menu, this);
-        pm.registerEvents(new SkinSessionListener(this, store, applier), this);
+        pm.registerEvents(new SkinSessionListener(this, store, mojang), this);
         SkinCommand skin = new SkinCommand(this, mojang, applier, store, menu);
         getCommand("skin").setExecutor(skin);
         getCommand("skin").setTabCompleter(skin);
