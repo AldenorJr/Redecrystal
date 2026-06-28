@@ -1,6 +1,7 @@
 package com.redecrystal.lobby;
 
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -9,10 +10,13 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityPortalEvent;
 import org.bukkit.event.entity.FoodLevelChangeEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 
 /**
  * Lobby protection: no damage, no hunger, no death, no block interaction, and a
@@ -25,6 +29,14 @@ public final class LobbyProtection implements Listener {
 
     /** Horizontal leash radius from spawn, squared (200 blocks). */
     private static final double MAX_RADIUS_SQ = 200.0 * 200.0;
+
+    /**
+     * Scoreboard tag set by crystal-parkour on a player mid-run. While present we
+     * skip the void rescue + boundary so the parkour can handle its own falls
+     * (back to the last checkpoint, not the lobby spawn). Decoupled on purpose —
+     * a tag, not a compile-time dependency between the two plugins.
+     */
+    private static final String PARKOUR_RUNNING_TAG = "crystal_parkour_running";
 
     private final CrystalLobbyPlugin plugin;
 
@@ -64,6 +76,9 @@ public final class LobbyProtection implements Listener {
                 && from.getBlockZ() == to.getBlockZ()) {
             return;
         }
+        if (event.getPlayer().getScoreboardTags().contains(PARKOUR_RUNNING_TAG)) {
+            return; // parkour owns this player's movement/fall handling
+        }
         Location spawn = plugin.getSpawn();
         if (spawn == null) {
             return;
@@ -87,6 +102,37 @@ public final class LobbyProtection implements Listener {
         Location spawn = plugin.getSpawn();
         if (spawn != null) {
             event.setRespawnLocation(spawn);
+        }
+    }
+
+    // ── no Nether / End ──
+
+    /** Block all player portal travel (Nether/End portals) in the lobby. */
+    @EventHandler(ignoreCancelled = true)
+    public void onPortal(PlayerPortalEvent event) {
+        event.setCancelled(true);
+    }
+
+    /** Same for entities (e.g. a thrown item drifting into a portal). */
+    @EventHandler(ignoreCancelled = true)
+    public void onEntityPortal(EntityPortalEvent event) {
+        event.setCancelled(true);
+    }
+
+    /**
+     * Last line of defence: never let a player end up in the Nether or the End,
+     * whatever the cause (end gateway, command, plugin). Covers cases a portal
+     * event alone would miss.
+     */
+    @EventHandler(ignoreCancelled = true)
+    public void onTeleport(PlayerTeleportEvent event) {
+        Location to = event.getTo();
+        if (to == null || to.getWorld() == null) {
+            return;
+        }
+        World.Environment env = to.getWorld().getEnvironment();
+        if (env == World.Environment.NETHER || env == World.Environment.THE_END) {
+            event.setCancelled(true);
         }
     }
 

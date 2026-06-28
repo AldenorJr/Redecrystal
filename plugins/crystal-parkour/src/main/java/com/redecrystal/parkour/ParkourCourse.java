@@ -8,23 +8,27 @@ import org.bukkit.Location;
 import org.bukkit.World;
 
 /**
- * Immutable parkour course parsed from the centralized {@code parkour} config:
- * a start (with facing), ordered checkpoints, a finish, a kill plane ({@code fallY})
- * and a detection {@code radius}. Coordinates are world-relative; every lobby
- * shares the same {@code WORLD_LOBBY}, so one config drives them all.
+ * Immutable parkour course parsed from the centralized {@code parkour} config —
+ * all command-defined, so it replicates to every (identical) lobby like the
+ * spawn. Points: {@code spawn} (the compass arrival, with facing), {@code start}
+ * (the start line / iron plate), ordered {@code checkpoints}, {@code finish}, a
+ * kill plane ({@code fallY}, above the lobby's void-rescue threshold) and a
+ * detection {@code radius}. Each point also carries a floating hologram.
  */
 public final class ParkourCourse {
 
     private final String world;
-    private final double[] start;       // x,y,z,yaw,pitch  (null if unset)
+    private final double[] spawn;             // x,y,z,yaw,pitch (compass arrival)
+    private final double[] start;             // x,y,z (start line / iron plate)
     private final List<double[]> checkpoints; // each x,y,z
-    private final double[] finish;      // x,y,z (null if unset)
+    private final double[] finish;            // x,y,z
     private final double fallY;
     private final double radius;
 
-    private ParkourCourse(String world, double[] start, List<double[]> checkpoints,
+    private ParkourCourse(String world, double[] spawn, double[] start, List<double[]> checkpoints,
                           double[] finish, double fallY, double radius) {
         this.world = world;
+        this.spawn = spawn;
         this.start = start;
         this.checkpoints = checkpoints;
         this.finish = finish;
@@ -34,10 +38,11 @@ public final class ParkourCourse {
 
     public static ParkourCourse fromConfig(Map<String, Object> c) {
         if (c == null) {
-            return new ParkourCourse(null, null, List.of(), null, -64, 1.5);
+            return new ParkourCourse(null, null, null, List.of(), null, 50, 2.0);
         }
         String world = str(c.get("world"));
-        double[] start = point(c.get("start"), true);
+        double[] spawn = point(c.get("spawn"), true);
+        double[] start = point(c.get("start"), false);
         double[] finish = point(c.get("finish"), false);
         List<double[]> cps = new ArrayList<>();
         if (c.get("checkpoints") instanceof List<?> list) {
@@ -48,28 +53,56 @@ public final class ParkourCourse {
                 }
             }
         }
-        double fallY = num(c.get("fallY"), -64);
-        double radius = num(c.get("radius"), 1.5);
-        return new ParkourCourse(world, start, cps, finish, fallY, radius);
+        double fallY = num(c.get("fallY"), 50);
+        double radius = num(c.get("radius"), 2.0);
+        return new ParkourCourse(world, spawn, start, cps, finish, fallY, radius);
     }
 
+    /** Runnable once the world, the start line and the finish are all set. */
     public boolean isPlayable() {
-        return world != null && Bukkit.getWorld(world) != null && start != null && finish != null;
+        return worldReady() && start != null && finish != null;
     }
 
-    public Location startLocation() {
-        World w = Bukkit.getWorld(world);
-        return new Location(w, start[0], start[1], start[2], (float) start[3], (float) start[4]);
+    public boolean hasSpawn() {
+        return spawn != null;
     }
 
-    public Location checkpointLocation(int index) {
-        World w = Bukkit.getWorld(world);
-        double[] p = checkpoints.get(index);
-        return new Location(w, p[0], p[1], p[2]);
+    public boolean hasStart() {
+        return worldReady() && start != null;
+    }
+
+    public boolean hasFinishPoint() {
+        return worldReady() && finish != null;
+    }
+
+    private boolean worldReady() {
+        return world != null && Bukkit.getWorld(world) != null;
+    }
+
+    public double fallY() {
+        return fallY;
     }
 
     public int checkpointCount() {
         return checkpoints.size();
+    }
+
+    /** Compass arrival point (with facing). */
+    public Location spawnLocation() {
+        World w = Bukkit.getWorld(world);
+        return new Location(w, spawn[0], spawn[1], spawn[2], (float) spawn[3], (float) spawn[4]);
+    }
+
+    public Location startLocation() {
+        return at(start);
+    }
+
+    public Location checkpointLocation(int index) {
+        return at(checkpoints.get(index));
+    }
+
+    public Location finishLocation() {
+        return at(finish);
     }
 
     public boolean inStart(Location loc) {
@@ -90,15 +123,17 @@ public final class ParkourCourse {
         return -1;
     }
 
-    public boolean belowKillPlane(Location loc) {
-        return loc.getY() < fallY;
+    private Location at(double[] p) {
+        return new Location(Bukkit.getWorld(world), p[0], p[1], p[2]);
     }
 
     private boolean near(Location loc, double[] p) {
         if (p == null || loc.getWorld() == null || !loc.getWorld().getName().equals(world)) {
             return false;
         }
-        double dx = loc.getX() - p[0], dy = loc.getY() - p[1], dz = loc.getZ() - p[2];
+        double dx = loc.getX() - p[0];
+        double dy = loc.getY() - p[1];
+        double dz = loc.getZ() - p[2];
         return dx * dx + dy * dy + dz * dz <= radius * radius;
     }
 
@@ -127,7 +162,7 @@ public final class ParkourCourse {
         return Map.of("x", round(loc.getX()), "y", round(loc.getY()), "z", round(loc.getZ()));
     }
 
-    public static Map<String, Object> startMap(Location loc) {
+    public static Map<String, Object> facingMap(Location loc) {
         return Map.of("x", round(loc.getX()), "y", round(loc.getY()), "z", round(loc.getZ()),
                 "yaw", round(loc.getYaw()), "pitch", round(loc.getPitch()));
     }

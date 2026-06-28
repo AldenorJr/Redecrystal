@@ -197,6 +197,7 @@ services:
       TYPE: PAPER
       VERSION: "1.21.1"
       MEMORY: 1G
+      ALLOW_NETHER: "false"
       LEVEL_TYPE: FLAT
       GENERATOR_SETTINGS: '{"biome":"minecraft:the_void","layers":[{"block":"minecraft:air","height":1}]}'
       CRYSTAL_WORLD_SCHEMATIC: /schematics/redhouseterrian.schem
@@ -230,6 +231,8 @@ services:
       TYPE: PAPER
       VERSION: "1.21.1"
       MEMORY: 1536M
+      # Void hub — no Nether/End. (End is disabled via servers/bukkit.yml.)
+      ALLOW_NETHER: "false"
       # Void world — clean canvas for the pasted hub schematic. Flat+void is
       # deterministic, so every lobby is identical (one parkour course fits all).
       LEVEL_TYPE: FLAT

@@ -39,7 +39,7 @@ public class ParkourController {
 
     @GetMapping("/top")
     public List<Entry> top(@RequestParam(defaultValue = "10") int limit) {
-        return parkourService.top(Math.min(Math.max(limit, 1), 100));
+        return parkourService.top(Math.clamp(limit, 1, 100));
     }
 
     @GetMapping("/best/{uuid}")

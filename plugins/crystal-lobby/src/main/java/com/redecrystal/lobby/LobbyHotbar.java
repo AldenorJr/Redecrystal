@@ -1,9 +1,14 @@
 package com.redecrystal.lobby;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.redecrystal.core.CrystalCore;
 import com.redecrystal.core.cargo.CargoResolver;
+import com.redecrystal.core.http.BackendHttpClient;
+import com.redecrystal.core.http.InventoryData;
 import com.redecrystal.core.http.NetworkServer;
 import com.redecrystal.core.http.ProfileData;
+import com.redecrystal.core.json.Json;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -11,6 +16,7 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -38,6 +44,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
+import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -47,6 +54,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.LeatherArmorMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -72,20 +80,28 @@ public final class LobbyHotbar implements Listener {
     };
 
     private long tick;
+    private long petTick;
 
     private final JavaPlugin plugin;
     private final CrystalCore crystal;
     private static final String PET_TAG = "crystal_pet";
+    /** Reuses the inventory blob store as a per-player cosmetic-preferences row. */
+    private static final String COSMETICS_TYPE = "lobby-cosmetics";
 
     private final Map<UUID, Boolean> playersHidden = new ConcurrentHashMap<>();
     private final Map<UUID, Cosmetic> activeCosmetic = new ConcurrentHashMap<>();
     private final Map<UUID, Hat> activeHat = new ConcurrentHashMap<>();
     private final Map<UUID, Pet> activePetType = new ConcurrentHashMap<>();
     private final Map<UUID, Entity> activePet = new ConcurrentHashMap<>();
+    private final Map<UUID, Map<ArmorSlot, Armor>> activeArmor = new ConcurrentHashMap<>();
+    /** Optimistic-lock version last seen for each player's cosmetics row. */
+    private final Map<UUID, Integer> cosmeticsVersion = new ConcurrentHashMap<>();
     private final NamespacedKey lobbyKey;
     private final NamespacedKey cosmeticKey;
     private final NamespacedKey hatKey;
     private final NamespacedKey petKey;
+    private final NamespacedKey armorKey;
+    private final NamespacedKey navKey;
 
     public LobbyHotbar(JavaPlugin plugin, CrystalCore crystal) {
         this.plugin = plugin;
@@ -94,6 +110,8 @@ public final class LobbyHotbar implements Listener {
         this.cosmeticKey = new NamespacedKey(plugin, "cosmetic-id");
         this.hatKey = new NamespacedKey(plugin, "hat-id");
         this.petKey = new NamespacedKey(plugin, "pet-id");
+        this.armorKey = new NamespacedKey(plugin, "armor-id");
+        this.navKey = new NamespacedKey(plugin, "nav-id");
     }
 
     /** How a cosmetic is rendered around the player. */
@@ -177,29 +195,105 @@ public final class LobbyHotbar implements Listener {
 
     /** Companion pets that follow the player. Fancy ones are VIP. */
     private enum Pet {
-        NONE(Material.BARRIER, "§cRemover pet", null, false, false),
-        WOLF(Material.BONE, "§7Lobo", EntityType.WOLF, false, false),
-        CAT(Material.STRING, "§6Gato", EntityType.CAT, true, false),
-        CHICKEN(Material.EGG, "§eGalinha", EntityType.CHICKEN, true, false),
-        PIG(Material.CARROT, "§dPorco", EntityType.PIG, true, false),
-        RABBIT(Material.RABBIT_FOOT, "§fCoelho", EntityType.RABBIT, true, false),
-        FOX(Material.SWEET_BERRIES, "§6Raposa", EntityType.FOX, true, true),
-        PARROT(Material.FEATHER, "§aPapagaio", EntityType.PARROT, false, true),
-        BEE(Material.HONEYCOMB, "§eAbelha", EntityType.BEE, true, true),
-        ALLAY(Material.AMETHYST_SHARD, "§bAllay", EntityType.ALLAY, false, true);
+        NONE(Material.BARRIER, "§cRemover pet", null, false, false, false),
+        WOLF(Material.BONE, "§7Lobo", EntityType.WOLF, false, false, false),
+        CAT(Material.STRING, "§6Gato", EntityType.CAT, true, false, false),
+        CHICKEN(Material.EGG, "§eGalinha", EntityType.CHICKEN, true, false, false),
+        PIG(Material.CARROT, "§dPorco", EntityType.PIG, true, false, false),
+        RABBIT(Material.RABBIT_FOOT, "§fCoelho", EntityType.RABBIT, true, false, false),
+        FOX(Material.SWEET_BERRIES, "§6Raposa", EntityType.FOX, true, false, true),
+        PARROT(Material.FEATHER, "§aPapagaio", EntityType.PARROT, false, true, true),
+        BEE(Material.HONEYCOMB, "§eAbelha", EntityType.BEE, true, true, true),
+        ALLAY(Material.AMETHYST_SHARD, "§bAllay", EntityType.ALLAY, false, true, true);
 
         final Material icon;
         final String name;
         final EntityType type;
         final boolean baby;
+        final boolean flying;
         final boolean vip;
 
-        Pet(Material icon, String name, EntityType type, boolean baby, boolean vip) {
+        Pet(Material icon, String name, EntityType type, boolean baby, boolean flying, boolean vip) {
             this.icon = icon;
             this.name = name;
             this.type = type;
             this.baby = baby;
+            this.flying = flying;
             this.vip = vip;
+        }
+    }
+
+    /** The four wearable armour slots. */
+    private enum ArmorSlot { HELMET, CHESTPLATE, LEGGINGS, BOOTS }
+
+    /**
+     * Cosmetic armour pieces, grouped by {@link ArmorSlot}. Dyed-leather pieces
+     * carry a {@code leatherColor}; the flashy metals are {@code vip}. Each slot
+     * has a {@code REMOVE_*} entry whose {@code material} is {@code null}.
+     */
+    private enum Armor {
+        // ── helmet ──
+        REMOVE_HELMET(null, ArmorSlot.HELMET, "§cRemover capacete", null, false),
+        LEATHER_RED_HELMET(Material.LEATHER_HELMET, ArmorSlot.HELMET, "§cCapacete Vermelho", Color.RED, false),
+        LEATHER_BLUE_HELMET(Material.LEATHER_HELMET, ArmorSlot.HELMET, "§9Capacete Azul", Color.BLUE, false),
+        LEATHER_GREEN_HELMET(Material.LEATHER_HELMET, ArmorSlot.HELMET, "§aCapacete Verde", Color.LIME, false),
+        CHAINMAIL_HELMET(Material.CHAINMAIL_HELMET, ArmorSlot.HELMET, "§7Capacete de Malha", null, false),
+        IRON_HELMET(Material.IRON_HELMET, ArmorSlot.HELMET, "§fCapacete de Ferro", null, false),
+        GOLDEN_HELMET(Material.GOLDEN_HELMET, ArmorSlot.HELMET, "§eCapacete de Ouro", null, true),
+        DIAMOND_HELMET(Material.DIAMOND_HELMET, ArmorSlot.HELMET, "§bCapacete de Diamante", null, true),
+        NETHERITE_HELMET(Material.NETHERITE_HELMET, ArmorSlot.HELMET, "§8Capacete de Netherita", null, true),
+
+        // ── chestplate ──
+        REMOVE_CHESTPLATE(null, ArmorSlot.CHESTPLATE, "§cRemover peitoral", null, false),
+        LEATHER_RED_CHESTPLATE(Material.LEATHER_CHESTPLATE, ArmorSlot.CHESTPLATE, "§cPeitoral Vermelho", Color.RED, false),
+        LEATHER_BLUE_CHESTPLATE(Material.LEATHER_CHESTPLATE, ArmorSlot.CHESTPLATE, "§9Peitoral Azul", Color.BLUE, false),
+        LEATHER_GREEN_CHESTPLATE(Material.LEATHER_CHESTPLATE, ArmorSlot.CHESTPLATE, "§aPeitoral Verde", Color.LIME, false),
+        CHAINMAIL_CHESTPLATE(Material.CHAINMAIL_CHESTPLATE, ArmorSlot.CHESTPLATE, "§7Peitoral de Malha", null, false),
+        IRON_CHESTPLATE(Material.IRON_CHESTPLATE, ArmorSlot.CHESTPLATE, "§fPeitoral de Ferro", null, false),
+        GOLDEN_CHESTPLATE(Material.GOLDEN_CHESTPLATE, ArmorSlot.CHESTPLATE, "§ePeitoral de Ouro", null, true),
+        DIAMOND_CHESTPLATE(Material.DIAMOND_CHESTPLATE, ArmorSlot.CHESTPLATE, "§bPeitoral de Diamante", null, true),
+        NETHERITE_CHESTPLATE(Material.NETHERITE_CHESTPLATE, ArmorSlot.CHESTPLATE, "§8Peitoral de Netherita", null, true),
+        ELYTRA(Material.ELYTRA, ArmorSlot.CHESTPLATE, "§d§lElitros", null, true),
+
+        // ── leggings ──
+        REMOVE_LEGGINGS(null, ArmorSlot.LEGGINGS, "§cRemover calças", null, false),
+        LEATHER_RED_LEGGINGS(Material.LEATHER_LEGGINGS, ArmorSlot.LEGGINGS, "§cCalças Vermelhas", Color.RED, false),
+        LEATHER_BLUE_LEGGINGS(Material.LEATHER_LEGGINGS, ArmorSlot.LEGGINGS, "§9Calças Azuis", Color.BLUE, false),
+        LEATHER_GREEN_LEGGINGS(Material.LEATHER_LEGGINGS, ArmorSlot.LEGGINGS, "§aCalças Verdes", Color.LIME, false),
+        CHAINMAIL_LEGGINGS(Material.CHAINMAIL_LEGGINGS, ArmorSlot.LEGGINGS, "§7Calças de Malha", null, false),
+        IRON_LEGGINGS(Material.IRON_LEGGINGS, ArmorSlot.LEGGINGS, "§fCalças de Ferro", null, false),
+        GOLDEN_LEGGINGS(Material.GOLDEN_LEGGINGS, ArmorSlot.LEGGINGS, "§eCalças de Ouro", null, true),
+        DIAMOND_LEGGINGS(Material.DIAMOND_LEGGINGS, ArmorSlot.LEGGINGS, "§bCalças de Diamante", null, true),
+        NETHERITE_LEGGINGS(Material.NETHERITE_LEGGINGS, ArmorSlot.LEGGINGS, "§8Calças de Netherita", null, true),
+
+        // ── boots ──
+        REMOVE_BOOTS(null, ArmorSlot.BOOTS, "§cRemover botas", null, false),
+        LEATHER_RED_BOOTS(Material.LEATHER_BOOTS, ArmorSlot.BOOTS, "§cBotas Vermelhas", Color.RED, false),
+        LEATHER_BLUE_BOOTS(Material.LEATHER_BOOTS, ArmorSlot.BOOTS, "§9Botas Azuis", Color.BLUE, false),
+        LEATHER_GREEN_BOOTS(Material.LEATHER_BOOTS, ArmorSlot.BOOTS, "§aBotas Verdes", Color.LIME, false),
+        CHAINMAIL_BOOTS(Material.CHAINMAIL_BOOTS, ArmorSlot.BOOTS, "§7Botas de Malha", null, false),
+        IRON_BOOTS(Material.IRON_BOOTS, ArmorSlot.BOOTS, "§fBotas de Ferro", null, false),
+        GOLDEN_BOOTS(Material.GOLDEN_BOOTS, ArmorSlot.BOOTS, "§eBotas de Ouro", null, true),
+        DIAMOND_BOOTS(Material.DIAMOND_BOOTS, ArmorSlot.BOOTS, "§bBotas de Diamante", null, true),
+        NETHERITE_BOOTS(Material.NETHERITE_BOOTS, ArmorSlot.BOOTS, "§8Botas de Netherita", null, true);
+
+        final Material material;
+        final ArmorSlot slot;
+        final String name;
+        final Color leatherColor;
+        final boolean vip;
+
+        Armor(Material material, ArmorSlot slot, String name, Color leatherColor, boolean vip) {
+            this.material = material;
+            this.slot = slot;
+            this.name = name;
+            this.leatherColor = leatherColor;
+            this.vip = vip;
+        }
+
+        /** A {@code REMOVE_*} entry that clears its slot rather than equipping. */
+        boolean isRemove() {
+            return material == null;
         }
     }
 
@@ -212,7 +306,8 @@ public final class LobbyHotbar implements Listener {
     public void start() {
         removeOrphanPets(); // clear any pets left over from a previous run/crash
         plugin.getServer().getScheduler().runTaskTimer(plugin, this::tickCosmetics, 10L, 6L);
-        plugin.getServer().getScheduler().runTaskTimer(plugin, this::followPets, 10L, 4L);
+        // Every tick: smooth interpolation needs the high refresh rate to look fluid.
+        plugin.getServer().getScheduler().runTaskTimer(plugin, this::followPets, 10L, 1L);
     }
 
     /** Remove all spawned pets (called on disable so none are orphaned). */
@@ -320,7 +415,10 @@ public final class LobbyHotbar implements Listener {
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Player p = event.getPlayer();
-        Bukkit.getScheduler().runTask(plugin, () -> giveHotbar(p)); // after inventory load
+        Bukkit.getScheduler().runTask(plugin, () -> { // after inventory load
+            giveHotbar(p);
+            loadCosmetics(p); // restore the saved cosmetic selection from the backend
+        });
     }
 
     @EventHandler
@@ -330,6 +428,8 @@ public final class LobbyHotbar implements Listener {
         activeCosmetic.remove(uuid);
         activeHat.remove(uuid);
         activePetType.remove(uuid);
+        activeArmor.remove(uuid);
+        cosmeticsVersion.remove(uuid);
         Entity pet = activePet.remove(uuid);
         if (pet != null && !pet.isDead()) {
             pet.remove();
@@ -351,17 +451,12 @@ public final class LobbyHotbar implements Listener {
         p.getInventory().setItem(3, item(Material.RED_BED, "§aLobbys", "§7Clique para trocar de lobby"));
         p.getInventory().setItem(4, profileHead(p));
         p.getInventory().setItem(5, hideToggleItem(p));
-        p.getInventory().setItem(7, item(Material.LEATHER_HELMET, "§bChapéus", "§7Equipe um chapéu estiloso"));
+        p.getInventory().setItem(7, item(Material.LEATHER_HELMET, "§bVestuário", "§7Chapéus e armaduras"));
         p.getInventory().setItem(8, item(Material.NETHER_STAR, "§dCosméticos", "§7Personalize o seu visual"));
         p.getInventory().setHeldItemSlot(0);
 
-        // Re-apply the active hat (the clear() above wiped the armour slot).
-        Hat hat = activeHat.get(p.getUniqueId());
-        if (hat != null && hat != Hat.NONE) {
-            p.getInventory().setHelmet(new ItemStack(hat.material));
-        } else {
-            p.getInventory().setHelmet(null);
-        }
+        // Re-apply hat + armour (the clear() above wiped the armour slots).
+        applyAppearance(p);
     }
 
     // ── locks ──
@@ -374,6 +469,14 @@ public final class LobbyHotbar implements Listener {
     @EventHandler
     public void onSwap(PlayerSwapHandItemsEvent event) {
         event.setCancelled(true);
+    }
+
+    /** Block interacting with pets (no mounting, leashing, feeding, etc.). */
+    @EventHandler
+    public void onPetInteract(PlayerInteractEntityEvent event) {
+        if (event.getRightClicked().getScoreboardTags().contains(PET_TAG)) {
+            event.setCancelled(true);
+        }
     }
 
     @EventHandler
@@ -407,7 +510,7 @@ public final class LobbyHotbar implements Listener {
             case RED_BED -> { event.setCancelled(true); openLobbys(p); }
             case PLAYER_HEAD -> { event.setCancelled(true); showProfile(p); }
             case LIME_DYE, GRAY_DYE -> { event.setCancelled(true); toggleHide(p); }
-            case LEATHER_HELMET -> { event.setCancelled(true); openHats(p); }
+            case LEATHER_HELMET -> { event.setCancelled(true); openWardrobe(p); }
             case NETHER_STAR -> { event.setCancelled(true); openCosmetics(p); }
             default -> { }
         }
@@ -416,8 +519,8 @@ public final class LobbyHotbar implements Listener {
     private void openGames(Player p) {
         MenuHolder holder = new MenuHolder("games");
         Inventory inv = Bukkit.createInventory(holder, 27, Component.text("Modos de Jogo"));
-        border(inv, 27);
-        inv.setItem(13, item(Material.FEATHER, "§aParkour", "§7Teste a sua agilidade", "§eClique para jogar"));
+        inv.setItem(13, item(Material.FEATHER, "§aParkour", "§7Teste a sua agilidade",
+                "§eClique para ir ao início", "§7e pise na placa de ferro"));
         p.openInventory(inv);
     }
 
@@ -425,12 +528,10 @@ public final class LobbyHotbar implements Listener {
 
     private void openCosmetics(Player p) {
         Cosmetic[] all = Cosmetic.values();
-        List<Integer> slots = innerSlots(all.length);
-        int size = ((slots.get(slots.size() - 1) / 9) + 2) * 9;
-        size = Math.max(27, Math.min(size, 54));
+        int size = menuSize(all.length);
+        List<Integer> slots = contentSlots(all.length);
         MenuHolder holder = new MenuHolder("cosmetics");
         Inventory inv = Bukkit.createInventory(holder, size, Component.text("Cosméticos"));
-        border(inv, size);
 
         Cosmetic current = activeCosmetic.get(p.getUniqueId());
         boolean isVip = p.hasPermission(VIP_PERM);
@@ -487,6 +588,7 @@ public final class LobbyHotbar implements Listener {
             activeCosmetic.put(p.getUniqueId(), c);
             p.sendActionBar(MM.deserialize("<green>Cosmético ativado!"));
         }
+        saveCosmetics(p);
         openCosmetics(p); // refresh selection state
     }
 
@@ -494,11 +596,10 @@ public final class LobbyHotbar implements Listener {
 
     private void openHats(Player p) {
         Hat[] all = Hat.values();
-        List<Integer> slots = innerSlots(all.length);
-        int size = Math.max(27, Math.min(((slots.get(slots.size() - 1) / 9) + 2) * 9, 54));
+        int size = menuSize(all.length);
+        List<Integer> slots = contentSlots(all.length);
         MenuHolder holder = new MenuHolder("hats");
         Inventory inv = Bukkit.createInventory(holder, size, Component.text("Chapéus"));
-        border(inv, size);
 
         Hat current = activeHat.get(p.getUniqueId());
         boolean isVip = p.hasPermission(VIP_PERM);
@@ -525,6 +626,7 @@ public final class LobbyHotbar implements Listener {
             it.setItemMeta(meta);
             inv.setItem(slots.get(i), it);
         }
+        inv.setItem(size - 5, backButton()); // bottom-centre: back to the wardrobe hub
         p.openInventory(inv);
     }
 
@@ -533,27 +635,189 @@ public final class LobbyHotbar implements Listener {
             p.sendActionBar(MM.deserialize("<red>Esse chapéu é exclusivo para VIPs!"));
             return;
         }
+        UUID id = p.getUniqueId();
         if (h == Hat.NONE) {
-            activeHat.remove(p.getUniqueId());
-            p.getInventory().setHelmet(null);
+            activeHat.remove(id);
             p.sendActionBar(Component.text("Chapéu removido", NamedTextColor.GRAY));
         } else {
-            activeHat.put(p.getUniqueId(), h);
-            p.getInventory().setHelmet(new ItemStack(h.material));
+            activeHat.put(id, h);
+            // Hat and armour helmet share the head slot — equipping a hat clears it.
+            Map<ArmorSlot, Armor> map = activeArmor.get(id);
+            if (map != null) {
+                map.remove(ArmorSlot.HELMET);
+            }
             p.sendActionBar(MM.deserialize("<green>Chapéu equipado!"));
         }
+        applyAppearance(p);
+        saveCosmetics(p);
         openHats(p);
+    }
+
+    // ── wardrobe (hats + armour) ──
+
+    /** Hub that branches into the hat menu and the four armour-slot menus. */
+    private void openWardrobe(Player p) {
+        MenuHolder holder = new MenuHolder("wardrobe");
+        Inventory inv = Bukkit.createInventory(holder, 27, Component.text("Vestuário"));
+        inv.setItem(11, navItem(Material.LEATHER_HELMET, "§bChapéus", "hats", "§7Equipe um chapéu estiloso"));
+        inv.setItem(12, navItem(Material.IRON_HELMET, "§fCapacete", "armor:HELMET", "§7Armadura para a cabeça"));
+        inv.setItem(13, navItem(Material.IRON_CHESTPLATE, "§fPeitoral", "armor:CHESTPLATE", "§7Armadura para o peito"));
+        inv.setItem(14, navItem(Material.IRON_LEGGINGS, "§fCalças", "armor:LEGGINGS", "§7Armadura para as pernas"));
+        inv.setItem(15, navItem(Material.IRON_BOOTS, "§fBotas", "armor:BOOTS", "§7Armadura para os pés"));
+        p.openInventory(inv);
+    }
+
+    private ItemStack navItem(Material mat, String name, String target, String desc) {
+        ItemStack it = item(mat, name, desc, " ", "§eClique para abrir");
+        it.addUnsafeEnchantment(Enchantment.UNBREAKING, 1);
+        var meta = it.getItemMeta();
+        meta.addItemFlags(ItemFlag.HIDE_ENCHANTS, ItemFlag.HIDE_ATTRIBUTES);
+        meta.getPersistentDataContainer().set(navKey, PersistentDataType.STRING, target);
+        it.setItemMeta(meta);
+        return it;
+    }
+
+    // ── armour ──
+
+    private void openArmorSlotMenu(Player p, ArmorSlot slot) {
+        List<Armor> pieces = new ArrayList<>();
+        for (Armor a : Armor.values()) {
+            if (a.slot == slot) {
+                pieces.add(a);
+            }
+        }
+        int size = menuSize(pieces.size());
+        List<Integer> slots = contentSlots(pieces.size());
+        MenuHolder holder = new MenuHolder("armor");
+        Inventory inv = Bukkit.createInventory(holder, size, Component.text("Armadura · " + slotName(slot)));
+
+        Armor current = armorOf(p.getUniqueId(), slot);
+        boolean isVip = p.hasPermission(VIP_PERM);
+        for (int i = 0; i < pieces.size() && i < slots.size(); i++) {
+            Armor a = pieces.get(i);
+            boolean selected = current == a;
+            boolean locked = a.vip && !isVip;
+            List<String> lore = new ArrayList<>();
+            lore.add(a.isRemove() ? "§7Remove a peça atual" : "§7Vista no seu corpo");
+            lore.add(" ");
+            if (locked) {
+                lore.add("§c🔒 Exclusivo VIP");
+                lore.add("§7Adquira VIP para usar");
+            } else if (selected) {
+                lore.add("§a✔ Selecionado");
+            } else {
+                if (a.vip) lore.add("§6★ VIP");
+                lore.add("§eClique para usar");
+            }
+            ItemStack it = armorIcon(a, lore.toArray(new String[0]));
+            if (selected && !a.isRemove()) glow(it);
+            var meta = it.getItemMeta();
+            meta.getPersistentDataContainer().set(armorKey, PersistentDataType.STRING, a.name());
+            it.setItemMeta(meta);
+            inv.setItem(slots.get(i), it);
+        }
+        inv.setItem(size - 5, backButton()); // bottom-centre: back to the wardrobe hub
+        p.openInventory(inv);
+    }
+
+    private void selectArmor(Player p, Armor a) {
+        if (a.vip && !p.hasPermission(VIP_PERM)) {
+            p.sendActionBar(MM.deserialize("<red>Essa armadura é exclusiva para VIPs!"));
+            return;
+        }
+        UUID id = p.getUniqueId();
+        Map<ArmorSlot, Armor> map = activeArmor.computeIfAbsent(id, k -> new EnumMap<>(ArmorSlot.class));
+        if (a.isRemove()) {
+            map.remove(a.slot);
+            p.sendActionBar(Component.text("Peça removida", NamedTextColor.GRAY));
+        } else {
+            map.put(a.slot, a);
+            if (a.slot == ArmorSlot.HELMET) {
+                activeHat.remove(id); // armour helmet and hat share the head slot
+            }
+            p.sendActionBar(MM.deserialize("<green>Armadura equipada!"));
+        }
+        applyAppearance(p);
+        saveCosmetics(p);
+        openArmorSlotMenu(p, a.slot);
+    }
+
+    /** The display icon for an armour piece (dyed leather + hidden attributes). */
+    private ItemStack armorIcon(Armor a, String... lore) {
+        if (a.isRemove()) {
+            return item(Material.BARRIER, a.name, lore);
+        }
+        ItemStack it = item(a.material, a.name, lore);
+        var meta = it.getItemMeta();
+        if (a.leatherColor != null && meta instanceof LeatherArmorMeta lm) {
+            lm.setColor(a.leatherColor);
+        }
+        meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
+        it.setItemMeta(meta);
+        return it;
+    }
+
+    /** The actual wearable item placed in the armour slot. */
+    private ItemStack wearable(Armor a) {
+        ItemStack it = new ItemStack(a.material);
+        var meta = it.getItemMeta();
+        if (a.leatherColor != null && meta instanceof LeatherArmorMeta lm) {
+            lm.setColor(a.leatherColor);
+        }
+        meta.displayName(Component.text(a.name).decoration(TextDecoration.ITALIC, false));
+        meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_UNBREAKABLE);
+        meta.setUnbreakable(true);
+        it.setItemMeta(meta);
+        return it;
+    }
+
+    /** Re-apply the helmet/chest/legs/boots from the player's active hat + armour. */
+    private void applyAppearance(Player p) {
+        UUID id = p.getUniqueId();
+        Map<ArmorSlot, Armor> map = activeArmor.get(id);
+        var inv = p.getInventory();
+        inv.setChestplate(armorPieceOrNull(map, ArmorSlot.CHESTPLATE));
+        inv.setLeggings(armorPieceOrNull(map, ArmorSlot.LEGGINGS));
+        inv.setBoots(armorPieceOrNull(map, ArmorSlot.BOOTS));
+        // Helmet: the hat wins when present, otherwise the armour helmet.
+        Hat hat = activeHat.get(id);
+        if (hat != null && hat != Hat.NONE) {
+            inv.setHelmet(new ItemStack(hat.material));
+        } else {
+            inv.setHelmet(armorPieceOrNull(map, ArmorSlot.HELMET));
+        }
+    }
+
+    private ItemStack armorPieceOrNull(Map<ArmorSlot, Armor> map, ArmorSlot slot) {
+        if (map == null) {
+            return null;
+        }
+        Armor a = map.get(slot);
+        return (a == null || a.isRemove()) ? null : wearable(a);
+    }
+
+    private Armor armorOf(UUID id, ArmorSlot slot) {
+        Map<ArmorSlot, Armor> map = activeArmor.get(id);
+        return map == null ? null : map.get(slot);
+    }
+
+    private static String slotName(ArmorSlot slot) {
+        return switch (slot) {
+            case HELMET -> "Capacete";
+            case CHESTPLATE -> "Peitoral";
+            case LEGGINGS -> "Calças";
+            case BOOTS -> "Botas";
+        };
     }
 
     // ── pets ──
 
     private void openPets(Player p) {
         Pet[] all = Pet.values();
-        List<Integer> slots = innerSlots(all.length);
-        int size = Math.max(27, Math.min(((slots.get(slots.size() - 1) / 9) + 2) * 9, 54));
+        int size = menuSize(all.length);
+        List<Integer> slots = contentSlots(all.length);
         MenuHolder holder = new MenuHolder("pets");
         Inventory inv = Bukkit.createInventory(holder, size, Component.text("Pets"));
-        border(inv, size);
 
         Pet current = activePetType.get(p.getUniqueId());
         boolean isVip = p.hasPermission(VIP_PERM);
@@ -603,6 +867,7 @@ public final class LobbyHotbar implements Listener {
                 p.sendActionBar(MM.deserialize("<green>Pet ativado!"));
             }
         }
+        saveCosmetics(p);
         openPets(p);
     }
 
@@ -612,11 +877,15 @@ public final class LobbyHotbar implements Listener {
             e.addScoreboardTag(PET_TAG);
             if (e instanceof Mob mob) {
                 mob.setAI(false);
+                mob.setAware(false);
                 mob.setSilent(true);
                 mob.setCollidable(false);
                 mob.setRemoveWhenFarAway(false);
                 mob.setPersistent(true);
             }
+            // No gravity: movement is driven entirely by our per-tick interpolation,
+            // so the pet never drifts/falls between teleports (and aerial pets float).
+            e.setGravity(false);
             if (e instanceof LivingEntity le) {
                 le.setInvulnerable(true);
             }
@@ -630,31 +899,234 @@ public final class LobbyHotbar implements Listener {
         }
     }
 
+    /**
+     * Move each pet toward a point just behind/beside its owner. Instead of the old
+     * teleport-when-far jump, the pet eases in every tick (speed scales with the
+     * distance, so it accelerates when the owner runs and settles smoothly when
+     * close), turns to face the owner with a smoothed yaw, and does a gentle idle
+     * bob plus the occasional heart particle when it's hanging out next to them.
+     */
     private void followPets() {
+        petTick++;
         for (Map.Entry<UUID, Entity> entry : activePet.entrySet()) {
-            Player owner = plugin.getServer().getPlayer(entry.getKey());
+            UUID id = entry.getKey();
+            Player owner = plugin.getServer().getPlayer(id);
             Entity pet = entry.getValue();
             if (owner == null || pet == null || pet.isDead()) {
                 continue;
             }
             Location ol = owner.getLocation();
-            Vector dir = ol.getDirection().setY(0);
-            if (dir.lengthSquared() < 1.0E-4) {
-                dir = new Vector(0, 0, 1);
-            }
-            dir.normalize();
-            Vector side = new Vector(-dir.getZ(), 0, dir.getX()).multiply(0.6);
-            Location target = ol.clone().add(dir.multiply(-1.2)).add(side);
-            target.setY(ol.getY());
-            if (pet.getWorld() != target.getWorld()
-                    || pet.getLocation().distanceSquared(target) > 2.25) {
-                Vector face = ol.toVector().subtract(target.toVector());
-                if (face.lengthSquared() > 1.0E-4) {
-                    target.setDirection(face);
-                }
+            Location pl = pet.getLocation();
+            Location target = petTarget(owner, ol, id);
+
+            // Different world or owner teleported far away → instant catch-up.
+            if (pet.getWorld() != ol.getWorld() || pl.distanceSquared(target) > 64.0) {
+                target.setYaw(yawTo(target, ol));
                 pet.teleport(target);
+                continue;
+            }
+
+            double dist = pl.distance(target);
+            // Ease-in factor proportional to distance, clamped so it neither
+            // overshoots nor crawls.
+            double factor = Math.max(0.12, Math.min(0.55, dist * 0.35));
+            double nx = pl.getX() + (target.getX() - pl.getX()) * factor;
+            double ny = pl.getY() + (target.getY() - pl.getY()) * factor;
+            double nz = pl.getZ() + (target.getZ() - pl.getZ()) * factor;
+
+            boolean settled = dist < 0.6;
+            if (settled) {
+                // Bob in place, out of phase per pet so multiple pets don't sync.
+                double phase = (petTick + Math.abs(id.hashCode()) % 40) * 0.25;
+                ny = target.getY() + Math.max(0.0, Math.sin(phase) * 0.12);
+            }
+
+            Location next = new Location(pet.getWorld(), nx, ny, nz);
+            next.setYaw(lerpAngle(pl.getYaw(), yawTo(next, ol), 0.35f));
+            next.setPitch(0f);
+            pet.teleport(next);
+
+            if (settled && petTick % 30 == 0) {
+                pet.getWorld().spawnParticle(Particle.HEART,
+                        pet.getLocation().add(0, 0.6, 0), 1, 0.1, 0.1, 0.1, 0.0);
             }
         }
+    }
+
+    /** The point a pet should sit at: behind and to the side of its owner. */
+    private Location petTarget(Player owner, Location ol, UUID id) {
+        Vector dir = ol.getDirection().setY(0);
+        if (dir.lengthSquared() < 1.0E-4) {
+            dir = new Vector(0, 0, 1);
+        }
+        dir.normalize();
+        Vector side = new Vector(-dir.getZ(), 0, dir.getX()).multiply(0.6);
+        Location target = ol.clone().add(dir.multiply(-1.2)).add(side);
+        target.setY(ol.getY());
+        Pet type = activePetType.get(id);
+        if (type != null && type.flying) {
+            target.add(0, 1.1, 0); // aerial pets hover at head height
+        }
+        return target;
+    }
+
+    /** Yaw (degrees) pointing from {@code from} toward {@code to}, ignoring pitch. */
+    private static float yawTo(Location from, Location to) {
+        double dx = to.getX() - from.getX();
+        double dz = to.getZ() - from.getZ();
+        if (dx == 0 && dz == 0) {
+            return from.getYaw();
+        }
+        return (float) Math.toDegrees(Math.atan2(-dx, dz));
+    }
+
+    /** Interpolate an angle along the shortest arc, so the turn never spins 359°. */
+    private static float lerpAngle(float from, float to, float t) {
+        float diff = ((to - from + 540f) % 360f) - 180f;
+        return from + diff * t;
+    }
+
+    // ── persistence (cosmetic preferences, cross-session) ──
+
+    /**
+     * Load the player's saved cosmetic selection from the backend (reusing the
+     * inventory blob store under {@link #COSMETICS_TYPE}) and apply it. Runs the
+     * HTTP call off-thread, then applies on the main thread.
+     */
+    private void loadCosmetics(Player p) {
+        UUID id = p.getUniqueId();
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            InventoryData data;
+            try {
+                data = crystal.backend().getInventory(id.toString(), COSMETICS_TYPE);
+            } catch (Exception e) {
+                return; // backend down → fall back to a clean session
+            }
+            cosmeticsVersion.put(id, data.version());
+            if (data.isEmpty()) {
+                return;
+            }
+            final JsonNode node;
+            try {
+                node = Json.MAPPER.readTree(data.content());
+            } catch (Exception e) {
+                plugin.getLogger().warning("Cosméticos inválidos para " + id + ": " + e.getMessage());
+                return;
+            }
+            Bukkit.getScheduler().runTask(plugin, () -> applyLoaded(p, node));
+        });
+    }
+
+    private void applyLoaded(Player p, JsonNode node) {
+        if (!p.isOnline()) {
+            return;
+        }
+        UUID id = p.getUniqueId();
+        boolean isVip = p.hasPermission(VIP_PERM);
+
+        String cos = node.path("cosmetic").asText(null);
+        if (cos != null) {
+            try {
+                Cosmetic c = Cosmetic.valueOf(cos);
+                if (c != Cosmetic.NONE && (!c.vip || isVip)) {
+                    activeCosmetic.put(id, c);
+                }
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+
+        String hat = node.path("hat").asText(null);
+        if (hat != null) {
+            try {
+                Hat h = Hat.valueOf(hat);
+                if (h != Hat.NONE && (!h.vip || isVip)) {
+                    activeHat.put(id, h);
+                }
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+
+        JsonNode armor = node.path("armor");
+        if (armor.isObject()) {
+            Map<ArmorSlot, Armor> map = new EnumMap<>(ArmorSlot.class);
+            armor.fieldNames().forEachRemaining(slotName -> {
+                try {
+                    ArmorSlot slot = ArmorSlot.valueOf(slotName);
+                    Armor a = Armor.valueOf(armor.path(slotName).asText());
+                    if (!a.isRemove() && a.slot == slot && (!a.vip || isVip)) {
+                        map.put(slot, a);
+                    }
+                } catch (IllegalArgumentException ignored) {
+                }
+            });
+            if (!map.isEmpty()) {
+                activeArmor.put(id, map);
+            }
+        }
+
+        String pet = node.path("pet").asText(null);
+        if (pet != null) {
+            try {
+                Pet pt = Pet.valueOf(pet);
+                if (pt != Pet.NONE && (!pt.vip || isVip)) {
+                    Entity old = activePet.remove(id);
+                    if (old != null && !old.isDead()) {
+                        old.remove();
+                    }
+                    Entity e = spawnPet(p, pt);
+                    if (e != null) {
+                        activePet.put(id, e);
+                        activePetType.put(id, pt);
+                    }
+                }
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+
+        applyAppearance(p); // re-apply restored hat/armour visuals
+    }
+
+    /** Serialise the player's current selection and save it (off-thread). */
+    private void saveCosmetics(Player p) {
+        UUID id = p.getUniqueId();
+        ObjectNode root = Json.MAPPER.createObjectNode();
+        Cosmetic c = activeCosmetic.get(id);
+        if (c != null && c != Cosmetic.NONE) {
+            root.put("cosmetic", c.name());
+        }
+        Hat h = activeHat.get(id);
+        if (h != null && h != Hat.NONE) {
+            root.put("hat", h.name());
+        }
+        Pet pet = activePetType.get(id);
+        if (pet != null && pet != Pet.NONE) {
+            root.put("pet", pet.name());
+        }
+        Map<ArmorSlot, Armor> armor = activeArmor.get(id);
+        if (armor != null && !armor.isEmpty()) {
+            ObjectNode an = root.putObject("armor");
+            for (Map.Entry<ArmorSlot, Armor> e : armor.entrySet()) {
+                if (!e.getValue().isRemove()) {
+                    an.put(e.getKey().name(), e.getValue().name());
+                }
+            }
+        }
+        final String content = root.toString();
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            int version = cosmeticsVersion.getOrDefault(id, 0);
+            try {
+                cosmeticsVersion.put(id, crystal.backend().saveInventory(id.toString(), COSMETICS_TYPE, content, version));
+            } catch (BackendHttpClient.BackendException ex) {
+                // Version drifted (another save raced us) → refetch and retry once.
+                try {
+                    InventoryData fresh = crystal.backend().getInventory(id.toString(), COSMETICS_TYPE);
+                    cosmeticsVersion.put(id,
+                            crystal.backend().saveInventory(id.toString(), COSMETICS_TYPE, content, fresh.version()));
+                } catch (Exception ignored) {
+                }
+            } catch (Exception ignored) {
+            }
+        });
     }
 
     // ── lobbys ──
@@ -679,12 +1151,10 @@ public final class LobbyHotbar implements Listener {
         if (!p.isOnline()) {
             return;
         }
-        List<Integer> slots = innerSlots(lobbies.size());
-        int size = ((slots.isEmpty() ? 1 : (slots.get(slots.size() - 1) / 9) + 1) + 1) * 9;
-        size = Math.max(27, Math.min(size, 54));
+        int size = menuSize(Math.max(lobbies.size(), 1));
+        List<Integer> slots = contentSlots(lobbies.size());
         MenuHolder holder = new MenuHolder("lobbys");
         Inventory inv = Bukkit.createInventory(holder, size, Component.text("Lobbys"));
-        border(inv, size);
 
         String current = crystal.config().serverId();
         int i = 0;
@@ -764,11 +1234,43 @@ public final class LobbyHotbar implements Listener {
                 }
             }
             case "hats" -> {
-                String id = clicked.getItemMeta().getPersistentDataContainer()
-                        .get(hatKey, PersistentDataType.STRING);
+                var pdc = clicked.getItemMeta().getPersistentDataContainer();
+                if (pdc.has(navKey, PersistentDataType.STRING)) {
+                    openWardrobe(p);
+                    return;
+                }
+                String id = pdc.get(hatKey, PersistentDataType.STRING);
                 if (id != null) {
                     try {
                         selectHat(p, Hat.valueOf(id));
+                    } catch (IllegalArgumentException ignored) {
+                    }
+                }
+            }
+            case "wardrobe" -> {
+                String target = clicked.getItemMeta().getPersistentDataContainer()
+                        .get(navKey, PersistentDataType.STRING);
+                if (target != null) {
+                    if (target.equals("hats")) {
+                        openHats(p);
+                    } else if (target.startsWith("armor:")) {
+                        try {
+                            openArmorSlotMenu(p, ArmorSlot.valueOf(target.substring("armor:".length())));
+                        } catch (IllegalArgumentException ignored) {
+                        }
+                    }
+                }
+            }
+            case "armor" -> {
+                var pdc = clicked.getItemMeta().getPersistentDataContainer();
+                if (pdc.has(navKey, PersistentDataType.STRING)) {
+                    openWardrobe(p);
+                    return;
+                }
+                String id = pdc.get(armorKey, PersistentDataType.STRING);
+                if (id != null) {
+                    try {
+                        selectArmor(p, Armor.valueOf(id));
                     } catch (IllegalArgumentException ignored) {
                     }
                 }
@@ -808,7 +1310,6 @@ public final class LobbyHotbar implements Listener {
         }
         MenuHolder holder = new MenuHolder("profile");
         Inventory inv = Bukkit.createInventory(holder, 27, Component.text("Perfil"));
-        border(inv, 27);
 
         Component cargo = resolveCargo(p);
 
@@ -862,7 +1363,7 @@ public final class LobbyHotbar implements Listener {
                 p.showPlayer(plugin, other);
             }
         }
-        p.getInventory().setItem(7, hideToggleItem(p));
+        p.getInventory().setItem(5, hideToggleItem(p));
         p.sendActionBar(Component.text(nowHidden ? "Jogadores escondidos" : "Jogadores visíveis",
                 nowHidden ? NamedTextColor.GRAY : NamedTextColor.GREEN));
     }
@@ -911,29 +1412,42 @@ public final class LobbyHotbar implements Listener {
         it.setItemMeta(meta);
     }
 
-    /** Fill the border (edges) of a chest inventory with purple glass panes. */
-    private void border(Inventory inv, int size) {
-        ItemStack pane = item(Material.PURPLE_STAINED_GLASS_PANE, "§r");
-        int rows = size / 9;
-        for (int i = 0; i < size; i++) {
-            int col = i % 9;
-            int row = i / 9;
-            if (row == 0 || row == rows - 1 || col == 0 || col == 8) {
-                inv.setItem(i, pane);
-            }
-        }
-    }
-
-    /** Inner (non-border) slots for as many lobbies as needed, 7 per content row. */
-    private List<Integer> innerSlots(int count) {
-        int rows = Math.max(1, (int) Math.ceil(count / 7.0));
+    /**
+     * Centered content slots — no filler panes. Content is centered both
+     * vertically (a blank row above/below it when it fits) and horizontally
+     * (each row centered across the full 9 columns). Empty slots stay air for a
+     * clean, modern look.
+     */
+    private List<Integer> contentSlots(int count) {
+        int contentRows = Math.max(1, (int) Math.ceil(count / 9.0));
+        int totalRows = Math.min(6, contentRows + 2);
+        int topPad = (totalRows - contentRows) / 2;
         List<Integer> slots = new ArrayList<>();
-        for (int r = 0; r < rows; r++) {
-            for (int c = 1; c <= 7; c++) {
-                slots.add((r + 1) * 9 + c);
+        int remaining = count;
+        for (int r = 0; r < contentRows; r++) {
+            int inRow = Math.min(9, remaining);
+            int startCol = (9 - inRow) / 2;
+            for (int c = 0; c < inRow; c++) {
+                slots.add((topPad + r) * 9 + startCol + c);
             }
+            remaining -= inRow;
         }
         return slots;
+    }
+
+    /** Inventory size (multiple of 9) for a centered list of {@code count} items. */
+    private int menuSize(int count) {
+        int contentRows = Math.max(1, (int) Math.ceil(count / 9.0));
+        return Math.min(6, contentRows + 2) * 9;
+    }
+
+    /** A "← back" arrow that returns to the wardrobe hub. */
+    private ItemStack backButton() {
+        ItemStack it = item(Material.ARROW, "§e← Voltar", "§7Voltar ao vestuário");
+        var meta = it.getItemMeta();
+        meta.getPersistentDataContainer().set(navKey, PersistentDataType.STRING, "wardrobe");
+        it.setItemMeta(meta);
+        return it;
     }
 
     private static Component line(String mini) {

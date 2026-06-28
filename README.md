@@ -19,6 +19,15 @@ centralized backend, event-driven architecture (Kafka), distributed cache
 | Messaging         | Apache Kafka (KRaft, no ZooKeeper)                  |
 | Config            | Centralized via core-service; hot-reload via Kafka  |
 
+## Padrões de código
+
+Convenções de _clean code_ do projeto (records para DTO, threading
+async→main thread do Bukkit, camadas `api/application/domain` no backend,
+_optimistic locking_, GUI-first, etc.) estão em
+**[`docs/CODING_STANDARDS.md`](docs/CODING_STANDARDS.md)** — leitura obrigatória
+antes de contribuir. O resumo para agentes/IA fica em
+[`CLAUDE.md`](CLAUDE.md); a formatação mecânica é garantida pelo `.editorconfig`.
+
 ## Project layout
 
 ```
