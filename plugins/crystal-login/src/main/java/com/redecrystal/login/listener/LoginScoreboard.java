@@ -1,4 +1,4 @@
-package com.redecrystal.login;
+package com.redecrystal.login.listener;
 
 import com.redecrystal.core.CrystalCore;
 import java.util.ArrayList;

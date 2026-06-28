@@ -1,6 +1,7 @@
-package com.redecrystal.login;
+package com.redecrystal.login.listener;
 
 import com.redecrystal.core.CrystalCore;
+import com.redecrystal.login.CrystalLoginPlugin;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import java.time.Duration;
 import net.kyori.adventure.text.Component;

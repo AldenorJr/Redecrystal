@@ -6,25 +6,21 @@ import com.redecrystal.core.http.AccountStatus;
 import com.redecrystal.core.http.AuthToken;
 import com.redecrystal.core.http.BackendHttpClient.BackendException;
 import com.redecrystal.core.messaging.KafkaTopics;
+import com.redecrystal.login.listener.CommandFilterListener;
+import com.redecrystal.login.listener.LoginGuard;
+import com.redecrystal.login.listener.LoginScoreboard;
+import com.redecrystal.login.listener.PlayerJoinListener;
+import com.redecrystal.login.listener.PlayerQuitListener;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.title.Title;
-import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerCommandPreprocessEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.potion.PotionEffect;
-import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitTask;
 
 /**
@@ -38,7 +34,7 @@ import org.bukkit.scheduler.BukkitTask;
  * set and prove a password. Premium accounts are supported by the backend for
  * when online-mode is enabled, but are not auto-detected in this slice.
  */
-public final class CrystalLoginPlugin extends JavaPlugin implements Listener {
+public final class CrystalLoginPlugin extends JavaPlugin {
 
     private static final MiniMessage MM = MiniMessage.miniMessage();
     private static final String AUTH_CHANNEL = "crystal:auth";
@@ -68,10 +64,13 @@ public final class CrystalLoginPlugin extends JavaPlugin implements Listener {
                 () -> getServer().getTPS()[0]);
 
         getServer().getMessenger().registerOutgoingPluginChannel(this, AUTH_CHANNEL);
-        getServer().getPluginManager().registerEvents(this, this);
-        getServer().getPluginManager().registerEvents(new LoginGuard(this, crystal), this);
+        var pm = getServer().getPluginManager();
+        pm.registerEvents(new PlayerJoinListener(this), this);
+        pm.registerEvents(new CommandFilterListener(this), this);
+        pm.registerEvents(new PlayerQuitListener(this), this);
+        pm.registerEvents(new LoginGuard(this, crystal), this);
         LoginScoreboard scoreboard = new LoginScoreboard(this, crystal);
-        getServer().getPluginManager().registerEvents(scoreboard, this);
+        pm.registerEvents(scoreboard, this);
         scoreboard.start();
         getLogger().info("CrystalLogin enabled (timeout=" + loginTimeoutSeconds + "s).");
     }
@@ -91,28 +90,19 @@ public final class CrystalLoginPlugin extends JavaPlugin implements Listener {
 
     // ── join: freeze + prompt ──
 
-    @EventHandler
-    public void onJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
+    /** Arm the login timeout that kicks a player who never authenticates. */
+    public void scheduleLoginTimeout(Player player) {
         UUID uuid = player.getUniqueId();
-
-        player.setGameMode(GameMode.ADVENTURE);
-        player.setHealth(20.0);
-        player.setFoodLevel(20);
-        player.setAllowFlight(false);
-        player.setFlying(false);
-        player.getInventory().clear();
-        player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS,
-                PotionEffect.INFINITE_DURATION, 0, false, false, false));
-
-        // Kick the player if they sit on the login screen too long (frees the slot).
         timeouts.put(uuid, getServer().getScheduler().runTaskLater(this, () -> {
             if (player.isOnline() && !isAuthenticated(uuid)) {
                 player.kick(MM.deserialize("<red>Tempo de login esgotado. Reconecte para tentar novamente."));
             }
         }, loginTimeoutSeconds * 20L));
+    }
 
-        // Tailor the prompt to whether the account exists (off the main thread).
+    /** Off the main thread, tailor the auth prompt to whether the account exists. */
+    public void resolveAndPrompt(Player player) {
+        UUID uuid = player.getUniqueId();
         getServer().getScheduler().runTaskAsynchronously(this, () -> {
             boolean registered;
             try {
@@ -144,40 +134,8 @@ public final class CrystalLoginPlugin extends JavaPlugin implements Listener {
 
     // ── auth commands (intercepted so the password is never logged or broadcast) ──
 
-    @EventHandler
-    public void onCommand(PlayerCommandPreprocessEvent event) {
-        Player player = event.getPlayer();
-        if (isAuthenticated(player.getUniqueId())) {
-            return; // already in; let it through (they are being routed away anyway)
-        }
-        event.setCancelled(true); // nothing but the auth commands is allowed pre-login
-
-        String[] parts = event.getMessage().trim().split("\\s+");
-        String cmd = parts[0].toLowerCase();
-        switch (cmd) {
-            case "/login", "/l" -> {
-                if (parts.length < 2) {
-                    send(player, "<red>Uso: /login <senha>");
-                    return;
-                }
-                authenticate(player, parts[1], false);
-            }
-            case "/registrar", "/reg" -> {
-                if (parts.length < 3) {
-                    send(player, "<red>Uso: /registrar <senha> <repita a senha>");
-                    return;
-                }
-                if (!parts[1].equals(parts[2])) {
-                    send(player, "<red>As senhas não conferem. Tente novamente.");
-                    return;
-                }
-                authenticate(player, parts[1], true);
-            }
-            default -> send(player, "<red>Faça login primeiro: <white>/login <senha> <red>ou <white>/registrar <senha> <senha>");
-        }
-    }
-
-    private void authenticate(Player player, String password, boolean register) {
+    /** Validate the password and submit the credentials to the backend. */
+    public void authenticate(Player player, String password, boolean register) {
         if (password.length() < MIN_PASSWORD_LENGTH || password.length() > MAX_PASSWORD_LENGTH) {
             send(player, "<red>A senha deve ter entre " + MIN_PASSWORD_LENGTH + " e " + MAX_PASSWORD_LENGTH + " caracteres.");
             return;
@@ -240,9 +198,8 @@ public final class CrystalLoginPlugin extends JavaPlugin implements Listener {
         }
     }
 
-    @EventHandler
-    public void onQuit(PlayerQuitEvent event) {
-        UUID uuid = event.getPlayer().getUniqueId();
+    /** Drop the player's local login state on quit. */
+    public void clearLocalState(UUID uuid) {
         // Local state only — the proxy's DisconnectEvent revokes the real session,
         // so we must NOT clear Redis here (the player may just be moving to a lobby).
         authenticated.remove(uuid);
