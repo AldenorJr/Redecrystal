@@ -8,6 +8,7 @@ import io.lettuce.core.pubsub.RedisPubSubAdapter;
 import io.lettuce.core.pubsub.StatefulRedisPubSubConnection;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.BiConsumer;
 
@@ -56,6 +57,12 @@ public final class RedisClient implements AutoCloseable {
     public void sadd(String key, String member)        { sync.sadd(key, member); }
     public void srem(String key, String member)        { sync.srem(key, member); }
     public boolean sismember(String key, String member){ return Boolean.TRUE.equals(sync.sismember(key, member)); }
+
+    // ── generic hash ops (e.g. tag:overrides) ──
+    public void hset(String key, String field, String value) { sync.hset(key, field, value); }
+    public String hget(String key, String field)             { return sync.hget(key, field); }
+    public void hdel(String key, String field)               { sync.hdel(key, field); }
+    public Map<String, String> hgetAll(String key)           { return sync.hgetall(key); }
 
     // ── leaderboards (sorted set) ──
     public void leaderboardAdd(String board, String member, double score) {
