@@ -3,7 +3,8 @@
 -- crystal-tab (the same tag in the player-list). Each role is matched on the
 -- player's server by the permission node (LuckPerms); when a player has several,
 -- the highest 'weight' wins. Prefix/name-color use MiniMessage (legacy '&' codes
--- are also accepted by the plugins). Tags are wrapped in [BRACKETS].
+-- are also accepted by the plugins). Tags are wrapped in [BRACKETS]. Convention:
+-- prefixes are NOT bold and the player name renders white (nameColor "<white>").
 --
 -- chatFormat placeholders: <prefix> <player_name> <player> <server> <message>
 --
@@ -13,19 +14,19 @@ INSERT INTO network_configs (config_key, config) VALUES
      "chatFormat": "<prefix> <player_name><gray>:</gray> <message>",
      "bannedWords": [],
      "roles": {
-       "ceo":           { "permission": "tag.ceo",           "weight": 130, "prefix": "<bold><gradient:#ff0000:#ffcc00>[CEO]</gradient></bold>",      "nameColor": "<#ff5555>" },
-       "diretor":       { "permission": "tag.diretor",       "weight": 120, "prefix": "<bold><#ff7b00>[DIRETOR]</#ff7b00></bold>",                   "nameColor": "<#ffaa55>" },
-       "gerente":       { "permission": "tag.gerente",       "weight": 110, "prefix": "<bold><#ffcc00>[GERENTE]</#ffcc00></bold>",                   "nameColor": "<#ffdd55>" },
-       "administrador": { "permission": "tag.administrador", "weight": 100, "prefix": "<bold><dark_red>[ADMIN]</dark_red></bold>",                   "nameColor": "<red>" },
-       "moderador":     { "permission": "tag.moderador",     "weight": 90,  "prefix": "<bold><gold>[MOD]</gold></bold>",                             "nameColor": "<yellow>" },
-       "ajudante":      { "permission": "tag.ajudante",      "weight": 80,  "prefix": "<bold><green>[AJUDANTE]</green></bold>",                      "nameColor": "<green>" },
-       "youtuber":      { "permission": "tag.youtuber",      "weight": 70,  "prefix": "<bold><light_purple>[YOUTUBER]</light_purple></bold>",       "nameColor": "<light_purple>" },
-       "midia":         { "permission": "tag.midia",         "weight": 60,  "prefix": "<bold><#d633ff>[MIDIA]</#d633ff></bold>",                     "nameColor": "<#e699ff>" },
-       "apoiador":      { "permission": "tag.apoiador",      "weight": 50,  "prefix": "<bold><red>[APOIADOR]</red></bold>",                          "nameColor": "<red>" },
-       "crystal":       { "permission": "tag.crystal",       "weight": 40,  "prefix": "<bold><gradient:#00ffff:#66ccff>[CRYSTAL]</gradient></bold>", "nameColor": "<aqua>" },
-       "diamante":      { "permission": "tag.diamante",      "weight": 30,  "prefix": "<bold><aqua>[DIAMANTE]</aqua></bold>",                        "nameColor": "<aqua>" },
-       "ouro":          { "permission": "tag.ouro",          "weight": 20,  "prefix": "<bold><yellow>[OURO]</yellow></bold>",                        "nameColor": "<yellow>" },
-       "membro":        { "permission": "tag.membro",        "weight": 10,  "prefix": "<gray>[MEMBRO]</gray>",                                       "nameColor": "<gray>" }
+       "ceo":           { "permission": "tag.ceo",           "weight": 130, "prefix": "<gradient:#ff5555:#990000>[CEO]</gradient>",          "nameColor": "<white>" },
+       "diretor":       { "permission": "tag.diretor",       "weight": 120, "prefix": "<#ff7b00>[DIRETOR]</#ff7b00>",                       "nameColor": "<white>" },
+       "gerente":       { "permission": "tag.gerente",       "weight": 110, "prefix": "<gradient:#ff5555:#990000>[GERENTE]</gradient>",      "nameColor": "<white>" },
+       "administrador": { "permission": "tag.administrador", "weight": 100, "prefix": "<dark_red>[ADMIN]</dark_red>",                       "nameColor": "<white>" },
+       "moderador":     { "permission": "tag.moderador",     "weight": 90,  "prefix": "<gradient:#55ff55:#118811>[MODERADOR]</gradient>",    "nameColor": "<white>" },
+       "ajudante":      { "permission": "tag.ajudante",      "weight": 80,  "prefix": "<green>[AJUDANTE]</green>",                           "nameColor": "<white>" },
+       "youtuber":      { "permission": "tag.youtuber",      "weight": 70,  "prefix": "<light_purple>[YOUTUBER]</light_purple>",            "nameColor": "<white>" },
+       "midia":         { "permission": "tag.midia",         "weight": 60,  "prefix": "<#d633ff>[MIDIA]</#d633ff>",                          "nameColor": "<white>" },
+       "apoiador":      { "permission": "tag.apoiador",      "weight": 50,  "prefix": "<red>[APOIADOR]</red>",                               "nameColor": "<white>" },
+       "crystal":       { "permission": "tag.crystal",       "weight": 40,  "prefix": "<gradient:#00ffff:#66ccff>[CRYSTAL]</gradient>",      "nameColor": "<white>" },
+       "diamante":      { "permission": "tag.diamante",      "weight": 30,  "prefix": "<aqua>[DIAMANTE]</aqua>",                             "nameColor": "<white>" },
+       "ouro":          { "permission": "tag.ouro",          "weight": 20,  "prefix": "<yellow>[OURO]</yellow>",                             "nameColor": "<white>" },
+       "membro":        { "permission": "tag.membro",        "weight": 10,  "prefix": "<gray>[MEMBRO]</gray>",                               "nameColor": "<white>" }
      },
      "defaultRole": "membro"
    }'::jsonb)
