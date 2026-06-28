@@ -125,12 +125,17 @@ public final class TagSelectorMenu implements Listener {
         if (cargoId == null) {
             return;
         }
-        if (REMOVE.equals(cargoId)) {
-            TagOverrides.clear(crystal.redis(), menu.target());
-            admin.sendActionBar(Component.text("§aOverride removido de " + menu.targetName()));
-        } else {
-            TagOverrides.set(crystal.redis(), menu.target(), cargoId);
-            admin.sendActionBar(Component.text("§aTag '" + cargoId + "' aplicada a " + menu.targetName()));
+        try {
+            if (REMOVE.equals(cargoId)) {
+                TagOverrides.clear(crystal.redis(), menu.target());
+                admin.sendActionBar(Component.text("§aOverride removido de " + menu.targetName()));
+            } else {
+                TagOverrides.set(crystal.redis(), menu.target(), cargoId);
+                admin.sendActionBar(Component.text("§aTag '" + cargoId + "' aplicada a " + menu.targetName()));
+            }
+        } catch (Exception e) {
+            admin.sendActionBar(Component.text("§cFalha ao salvar (Redis indisponível)."));
+            return;
         }
         open(admin, menu.target(), menu.targetName()); // refresh selection state
     }

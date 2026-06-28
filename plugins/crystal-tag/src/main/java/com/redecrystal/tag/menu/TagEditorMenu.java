@@ -21,6 +21,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -40,6 +41,7 @@ public final class TagEditorMenu implements Listener {
     private static final String LIST_TYPE = "tag:editor";
     private static final String CARGO_TYPE = "tag:cargo";
     private static final String CREATE = "__create__";
+    private static final String ADMIN_PERM = "crystal.tag.admin";
 
     private final JavaPlugin plugin;
     private final CrystalCore crystal;
@@ -128,11 +130,13 @@ public final class TagEditorMenu implements Listener {
             return;
         }
         event.setCancelled(true);
+        if (!(event.getWhoClicked() instanceof Player admin) || !admin.hasPermission(ADMIN_PERM)) {
+            return;
+        }
         ItemStack clicked = event.getCurrentItem();
         if (clicked == null || clicked.getItemMeta() == null) {
             return;
         }
-        Player admin = (Player) event.getWhoClicked();
         var pdc = clicked.getItemMeta().getPersistentDataContainer();
 
         if (LIST_TYPE.equals(menu.type())) {
@@ -173,6 +177,11 @@ public final class TagEditorMenu implements Listener {
         admin.closeInventory();
         admin.sendMessage(Component.text("» ", NamedTextColor.AQUA)
                 .append(Component.text(message.replace("§r", "").replace("§f", ""), NamedTextColor.GRAY)));
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        awaiting.remove(event.getPlayer().getUniqueId());
     }
 
     @EventHandler
@@ -261,13 +270,16 @@ public final class TagEditorMenu implements Listener {
                     roles.remove(cargoId);
                     map.put("roles", roles);
                     crystal.backend().putConfig(CONFIG_KEY, map);
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        admin.sendMessage(Component.text("Cargo '" + cargoId + "' excluído.", NamedTextColor.GREEN));
+                        if (admin.isOnline()) {
+                            open(admin);
+                        }
+                    });
+                } else {
+                    Bukkit.getScheduler().runTask(plugin, () ->
+                            admin.sendMessage(Component.text("Nenhum cargo para excluir.", NamedTextColor.RED)));
                 }
-                Bukkit.getScheduler().runTask(plugin, () -> {
-                    admin.sendMessage(Component.text("Cargo '" + cargoId + "' excluído.", NamedTextColor.GREEN));
-                    if (admin.isOnline()) {
-                        open(admin);
-                    }
-                });
             } catch (Exception e) {
                 Bukkit.getScheduler().runTask(plugin, () ->
                         admin.sendMessage(Component.text("Falha ao excluir: " + e.getMessage(), NamedTextColor.RED)));
