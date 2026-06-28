@@ -1,0 +1,14 @@
+name: CrystalSkin
+version: 0.1.0
+main: com.redecrystal.skin.CrystalSkinPlugin
+api-version: '1.21'
+author: RedeCrystal
+description: Aplicar skins (Mojang) e histórico de skins em GUI.
+commands:
+  skin:
+    description: Aplicar uma skin ou abrir o histórico
+    usage: /skin [set <nick>]
+permissions:
+  crystal.skin.use:
+    description: Usar /skin e reaplicar do histórico
+    default: true
