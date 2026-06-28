@@ -1,7 +1,7 @@
 # RedeCrystal — Velocity proxy (proxy-01). Modern forwarding with a shared secret.
 config-version = "2.8"
 bind = "0.0.0.0:25565"
-motd = "<#5dade2>RedeCrystal"
+motd = "  <gradient:#b14aed:#8e2de2><bold>REDECRYSTAL</bold></gradient> <dark_gray>»</dark_gray> <#c9a6ff>A sua aventura começa aqui\n  <#a335ee>✧ <white>Novidades, eventos e muito mais <#a335ee>✧"
 show-max-players = 500
 # Cracked/offline network for the dev slice (no Mojang auth required).
 online-mode = false

@@ -1,0 +1,49 @@
+# ──────────────────────────────────────────────────────────────────────────
+# RedeCrystal — RELEASE / dev environment (container configuration).
+#
+# Copy to `configuration/environment` to activate:
+#     cp configuration/environment.release.example configuration/environment
+#
+# docker-compose loads this into the services via `env_file`. Only deployment /
+# secret values live here (the things that differ between release and production).
+# Service-intrinsic settings (SERVER_ID, Kafka broker config, memory, world
+# generation) stay inline in docker-compose.yml. Published host ports stay in
+# the root `.env` (compose interpolation layer).
+# ──────────────────────────────────────────────────────────────────────────
+
+# ── Backend / service discovery ──
+BACKEND_URL=http://api-gateway:8080
+BACKEND_SERVICE_TOKEN=change-me-dev-service-token
+EUREKA_URL=http://eureka-server:8761/eureka/
+EUREKA_PREFER_IP=true
+
+# ── PostgreSQL (shared) ──
+POSTGRES_DB=redecrystal
+POSTGRES_USER=crystal
+POSTGRES_PASSWORD=crystal
+POSTGRES_HOST=postgres
+
+# ── Redis ──
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# ── Kafka ──
+KAFKA_BROKERS=kafka:9092
+
+# ── LuckPerms (shared Postgres storage + Redis live messaging) ──
+LUCKPERMS_STORAGE_METHOD=postgresql
+LUCKPERMS_DATA_ADDRESS=postgres:5432
+LUCKPERMS_DATA_DATABASE=luckperms_db
+LUCKPERMS_DATA_USERNAME=crystal
+LUCKPERMS_DATA_PASSWORD=crystal
+LUCKPERMS_MESSAGING_SERVICE=redis
+LUCKPERMS_REDIS_ENABLED=true
+LUCKPERMS_REDIS_ADDRESS=redis:6379
+
+# ── Minecraft (deploy flags) ──
+EULA=TRUE
+ONLINE_MODE=FALSE
+
+# ── Grafana admin ──
+GF_SECURITY_ADMIN_USER=admin
+GF_SECURITY_ADMIN_PASSWORD=admin

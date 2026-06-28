@@ -6,12 +6,17 @@ import com.redecrystal.core.http.RemoteConfig;
 import com.redecrystal.core.messaging.KafkaTopics;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
@@ -33,15 +38,26 @@ public final class CrystalChatPlugin extends JavaPlugin implements Listener {
 
     private static final String CONFIG_KEY = "chat";
     private static final String TELLS_DISABLED = "tells_disabled";
+    private static final String DEFAULT_FORMAT = "<prefix> <player_name><gray>:</gray> <message>";
+    private static final MiniMessage MINI = MiniMessage.miniMessage();
 
     private CrystalCore crystal;
     /** Last person each local player exchanged a tell with, for /r. */
     private final Map<UUID, String> lastConversation = new ConcurrentHashMap<>();
 
+    /** Roles sorted by weight (desc); highest match wins. Hot-reloaded from config. */
+    private volatile List<Role> roles = List.of();
+    private volatile String chatFormat = DEFAULT_FORMAT;
+
+    /** A chat tag/cargo loaded from the centralized {@code chat} config. */
+    private record Role(String id, String permission, int weight, String prefix, String nameColor) { }
+
     @Override
     public void onEnable() {
         this.crystal = CrystalCore.bootstrap(CrystalConfig.fromEnv());
         crystal.configProvider().preload(CONFIG_KEY);
+        applyConfig(crystal.configProvider().get(CONFIG_KEY));
+        crystal.configProvider().onChange(CONFIG_KEY, this::applyConfig);
 
         crystal.events().on(KafkaTopics.PLAYER_CHAT, event -> {
             String scope = event.get("scope");
@@ -52,8 +68,11 @@ public final class CrystalChatPlugin extends JavaPlugin implements Listener {
                 String server = event.get("server");
                 String player = event.get("player");
                 String message = event.get("message");
+                String prefix = event.get("prefix");
+                String nameColor = event.get("nameColor");
                 if (player != null && message != null) {
-                    getServer().getScheduler().runTask(this, () -> broadcast(server, player, message));
+                    getServer().getScheduler().runTask(this,
+                            () -> broadcast(server, player, message, prefix, nameColor));
                 }
             }
         });
@@ -75,17 +94,88 @@ public final class CrystalChatPlugin extends JavaPlugin implements Listener {
     public void onChat(AsyncChatEvent event) {
         event.setCancelled(true);
         String clean = censor(PlainTextComponentSerializer.plainText().serialize(event.message()));
+        // Resolve the sender's tag here (this is the only server that can read the
+        // player's LuckPerms permissions); carry it in the payload so every server
+        // renders the same prefix/color regardless of where the player is.
+        Role role = resolveRole(event.getPlayer());
         crystal.kafka().publish(KafkaTopics.PLAYER_CHAT, event.getPlayer().getUniqueId().toString(), Map.of(
                 "scope", "global",
                 "player", event.getPlayer().getName(),
                 "message", clean,
-                "server", crystal.config().serverId()));
+                "server", crystal.config().serverId(),
+                "prefix", role == null ? "" : role.prefix(),
+                "nameColor", role == null ? "" : role.nameColor()));
+
+        // Persist to the backend chat history (+ message counter), off-thread.
+        final String uuid = event.getPlayer().getUniqueId().toString();
+        final String name = event.getPlayer().getName();
+        final String server = crystal.config().serverId();
+        getServer().getScheduler().runTaskAsynchronously(this, () -> {
+            try {
+                crystal.backend().recordMessage(uuid, name, server, "global", null, clean);
+            } catch (Exception e) {
+                getLogger().warning("recordMessage (global) falhou: " + e.getMessage());
+            }
+        });
     }
 
-    private void broadcast(String server, String player, String message) {
-        getServer().sendMessage(Component.text("[" + server + "] ", NamedTextColor.GRAY)
-                .append(Component.text(player + ": ", NamedTextColor.AQUA))
-                .append(Component.text(message, NamedTextColor.WHITE)));
+    private void broadcast(String server, String player, String message, String prefix, String nameColor) {
+        Component line = MINI.deserialize(
+                chatFormat,
+                Placeholder.component("prefix", parse(prefix)),
+                Placeholder.component("player_name", parse((nameColor == null ? "" : nameColor) + player)),
+                Placeholder.unparsed("player", player),
+                Placeholder.unparsed("server", server == null ? "" : server),
+                Placeholder.unparsed("message", message));
+        getServer().sendMessage(line);
+    }
+
+    // ── roles / tags ──
+
+    /** Rebuild the role cache and chat format from the centralized config. */
+    @SuppressWarnings("unchecked")
+    private void applyConfig(RemoteConfig cfg) {
+        this.chatFormat = cfg.string("chatFormat", DEFAULT_FORMAT);
+
+        List<Role> loaded = new ArrayList<>();
+        if (cfg.value("roles") instanceof Map<?, ?> rolesMap) {
+            for (Map.Entry<?, ?> entry : rolesMap.entrySet()) {
+                String id = String.valueOf(entry.getKey());
+                if (!(entry.getValue() instanceof Map<?, ?> data)) {
+                    continue;
+                }
+                Map<String, Object> m = (Map<String, Object>) data;
+                String permission = m.get("permission") == null ? "tag." + id : String.valueOf(m.get("permission"));
+                int weight = m.get("weight") instanceof Number n ? n.intValue() : 0;
+                String prefix = m.get("prefix") == null ? "" : String.valueOf(m.get("prefix"));
+                String nameColor = m.get("nameColor") == null ? "" : String.valueOf(m.get("nameColor"));
+                loaded.add(new Role(id, permission, weight, prefix, nameColor));
+            }
+        }
+        loaded.sort(Comparator.comparingInt(Role::weight).reversed());
+        this.roles = List.copyOf(loaded);
+        getLogger().info("CrystalChat: " + this.roles.size() + " cargo(s) carregado(s) para o chat.");
+    }
+
+    /** Highest-weight role whose permission the player has, or {@code null}. */
+    private Role resolveRole(Player player) {
+        for (Role role : roles) {
+            if (player.hasPermission(role.permission())) {
+                return role;
+            }
+        }
+        return null;
+    }
+
+    /** Parse a MiniMessage string, falling back to legacy '&' codes if present. */
+    private static Component parse(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return Component.empty();
+        }
+        if (raw.indexOf('&') >= 0 || raw.indexOf('§') >= 0) {
+            return LegacyComponentSerializer.legacyAmpersand().deserialize(raw.replace('§', '&'));
+        }
+        return MINI.deserialize(raw);
     }
 
     // ── private messages ──
@@ -142,6 +232,12 @@ public final class CrystalChatPlugin extends JavaPlugin implements Listener {
                     "fromUuid", from.getUniqueId().toString(),
                     "targetUuid", targetUuid.toString(),
                     "message", message));
+            try {
+                crystal.backend().recordMessage(from.getUniqueId().toString(), from.getName(),
+                        crystal.config().serverId(), "tell", targetName, message);
+            } catch (Exception e) {
+                getLogger().warning("recordMessage (tell) falhou: " + e.getMessage());
+            }
             from.sendMessage(Component.text("você → " + targetName + ": ", NamedTextColor.DARK_GRAY)
                     .append(Component.text(message, NamedTextColor.GRAY)));
             lastConversation.put(from.getUniqueId(), targetName);

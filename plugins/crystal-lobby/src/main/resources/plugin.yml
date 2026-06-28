@@ -8,7 +8,17 @@ commands:
   lobby:
     description: Go to the lobby spawn (/lobby setspawn for admins)
     usage: /lobby [setspawn]
+  manutencao:
+    description: Liga/desliga o modo manutenção da rede
+    usage: /manutencao <on|off>
+    aliases: [maintenance, manutençao, manutencão]
 permissions:
   crystal.lobby.admin:
     description: Manage the lobby (set spawn)
+    default: op
+  crystal.fly:
+    description: Fly freely around the lobby and login
+    default: op
+  crystal.maintenance:
+    description: Liga/desliga o modo manutenção da rede
     default: op

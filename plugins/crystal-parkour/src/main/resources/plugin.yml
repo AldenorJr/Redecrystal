@@ -1,9 +1,9 @@
 name: CrystalParkour
-version: 0.1.0
+version: 0.2.0
 main: com.redecrystal.parkour.CrystalParkourPlugin
 api-version: '1.21'
 author: RedeCrystal
-description: In-lobby parkour with a configurable course and best-time leaderboard.
+description: Plate-driven in-lobby parkour (start/checkpoint/finish plates) with a minigame hotbar, finish hologram and best-time leaderboard.
 commands:
   parkour:
     description: Play the lobby parkour

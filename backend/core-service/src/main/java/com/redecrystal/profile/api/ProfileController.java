@@ -24,16 +24,21 @@ public class ProfileController {
     }
 
     public record ProfileResponse(String uuid, String username, String rank, int level,
-                                  long experience, long coins, long playSeconds) {
+                                  long experience, long coins, long playSeconds,
+                                  long kills, long deaths, long messagesSent, String createdAt) {
         static ProfileResponse from(ProfileEntity p) {
             return new ProfileResponse(p.getPlayerUuid().toString(), p.getUsername(), p.getRank(),
-                    p.getLevel(), p.getExperience(), p.getCoins(), p.getPlaySeconds());
+                    p.getLevel(), p.getExperience(), p.getCoins(), p.getPlaySeconds(),
+                    p.getKills(), p.getDeaths(), p.getMessagesSent(),
+                    p.getCreatedAt() == null ? null : p.getCreatedAt().toString());
         }
     }
 
     public record EnsureRequest(String username) {}
 
     public record AddStatsRequest(long coins, long experience, long playSeconds) {}
+
+    public record AddCombatRequest(long kills, long deaths) {}
 
     @GetMapping("/{uuid}")
     public ProfileResponse get(@PathVariable UUID uuid) {
@@ -49,5 +54,10 @@ public class ProfileController {
     public ProfileResponse addStats(@PathVariable UUID uuid, @RequestBody AddStatsRequest body) {
         return ProfileResponse.from(
                 profileService.addStats(uuid, body.coins(), body.experience(), body.playSeconds()));
+    }
+
+    @PostMapping("/{uuid}/combat")
+    public ProfileResponse addCombat(@PathVariable UUID uuid, @RequestBody AddCombatRequest body) {
+        return ProfileResponse.from(profileService.addCombat(uuid, body.kills(), body.deaths()));
     }
 }

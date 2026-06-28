@@ -93,6 +93,38 @@ public final class BackendHttpClient {
                 "coins", coins, "experience", experience, "playSeconds", playSeconds)));
     }
 
+    /** Apply additive combat deltas (kills/deaths). */
+    public ProfileData addCombat(String uuid, long kills, long deaths) {
+        return toProfile(send("POST", "/api/profile/" + uuid + "/combat", Map.of(
+                "kills", kills, "deaths", deaths)));
+    }
+
+    // ── History (chat + activity) ──
+
+    /** Persist a chat message (global or tell) to the backend history. */
+    public void recordMessage(String uuid, String username, String server,
+                              String scope, String target, String message) {
+        java.util.Map<String, Object> body = new java.util.HashMap<>();
+        body.put("uuid", uuid);
+        body.put("username", username == null ? "" : username);
+        body.put("server", server == null ? "" : server);
+        body.put("scope", scope == null ? "global" : scope);
+        if (target != null) body.put("target", target);
+        body.put("message", message == null ? "" : message);
+        send("POST", "/api/chat/messages", body);
+    }
+
+    /** Append a player activity event (JOIN/QUIT/KILL/DEATH/COMMAND/...). */
+    public void recordActivity(String uuid, String username, String type, String detail, String server) {
+        java.util.Map<String, Object> body = new java.util.HashMap<>();
+        body.put("uuid", uuid);
+        body.put("username", username == null ? "" : username);
+        body.put("type", type);
+        if (detail != null) body.put("detail", detail);
+        body.put("server", server == null ? "" : server);
+        send("POST", "/api/activity", body);
+    }
+
     // ── Inventories ──
 
     public InventoryData getInventory(String uuid, String serverType) {
@@ -139,7 +171,9 @@ public final class BackendHttpClient {
         return new ProfileData(
                 n.path("uuid").asText(), n.path("username").asText(null), n.path("rank").asText("DEFAULT"),
                 n.path("level").asInt(1), n.path("experience").asLong(), n.path("coins").asLong(),
-                n.path("playSeconds").asLong());
+                n.path("playSeconds").asLong(),
+                n.path("kills").asLong(), n.path("deaths").asLong(), n.path("messagesSent").asLong(),
+                n.path("createdAt").asText(null));
     }
 
     /** List registered servers of a given type (e.g. "lobby") for discovery/balancing. */

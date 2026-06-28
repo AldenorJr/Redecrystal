@@ -30,6 +30,7 @@ public final class CrystalLoginPlugin extends JavaPlugin implements Listener {
                 () -> getServer().getTPS()[0]);
 
         getServer().getPluginManager().registerEvents(this, this);
+        getServer().getPluginManager().registerEvents(new LoginProtection(), this);
         getLogger().info("CrystalLogin enabled.");
     }
 
@@ -44,6 +45,10 @@ public final class CrystalLoginPlugin extends JavaPlugin implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         String uuid = player.getUniqueId().toString();
+        if (player.hasPermission("crystal.fly")) {
+            player.setAllowFlight(true);
+            player.setFlying(true);
+        }
 
         // Offline auth: record a session and announce authentication. The proxy
         // listens for this event and forwards the player to a lobby.

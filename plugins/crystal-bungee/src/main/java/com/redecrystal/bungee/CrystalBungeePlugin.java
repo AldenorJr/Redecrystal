@@ -10,23 +10,30 @@ import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.LoginEvent;
 import com.velocitypowered.api.event.player.PlayerChooseInitialServerEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
+import com.velocitypowered.api.event.proxy.ProxyPingEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.api.proxy.server.ServerInfo;
+import com.velocitypowered.api.proxy.server.ServerPing;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.slf4j.Logger;
 
 /**
@@ -60,7 +67,13 @@ public final class CrystalBungeePlugin {
     public void onInit(ProxyInitializeEvent event) {
         this.crystal = CrystalCore.bootstrap(CrystalConfig.fromEnv());
         crystal.configProvider().preload(GLOBAL_CONFIG);
-        crystal.registerThisServer(crystal.configProvider().get("proxy").integer("maxPlayers", 1000));
+
+        // Register this proxy in the network registry. A transient backend hiccup
+        // at cold boot — the api-gateway → core-service route not yet propagated
+        // through Eureka, yielding a 503 — must NOT abort the rest of init.
+        // Otherwise lobby discovery below never starts and /server stays empty
+        // until the proxy is restarted by hand. Retry in the background instead.
+        registerWithRetry();
         crystal.startHeartbeat(proxy::getPlayerCount);
 
         // Discover the lobby fleet now and keep it in sync.
@@ -81,6 +94,23 @@ public final class CrystalBungeePlugin {
         });
 
         logger.info("CrystalBungee enabled.");
+    }
+
+    /**
+     * Register this proxy in the network registry, retrying on transient failure.
+     * The maxPlayers lookup and the register call both touch the backend, which
+     * may be briefly unreachable at boot; a failure here is logged and retried in
+     * the background so the proxy self-heals without operator intervention.
+     */
+    private void registerWithRetry() {
+        try {
+            int maxPlayers = crystal.configProvider().get("proxy").integer("maxPlayers", 1000);
+            crystal.registerThisServer(maxPlayers);
+        } catch (Exception e) {
+            logger.warn("Proxy registration failed ({}); retrying in 10s", e.toString());
+            proxy.getScheduler().buildTask(this, this::registerWithRetry)
+                    .delay(Duration.ofSeconds(10)).schedule();
+        }
     }
 
     /** Reconcile Velocity's registered lobby servers with the live registry. */
@@ -142,13 +172,67 @@ public final class CrystalBungeePlugin {
         }
     }
 
-    /** Deny logins while the network is in maintenance (no bypass yet). */
+    // RedeCrystal purple wordmark color, shared across MOTD / kick.
+    private static final TextColor PURPLE = TextColor.color(0xB14AED);
+    private static final TextColor PURPLE_SOFT = TextColor.color(0xC9A6FF);
+
+    /**
+     * Deny logins while the network is in maintenance, except for staff listed in
+     * {@code global.maintenanceBypass} (player names), so they can get in to work.
+     */
     @Subscribe
     public void onLogin(LoginEvent event) {
-        if (crystal.configProvider().get(GLOBAL_CONFIG).bool("maintenance", false)) {
-            event.setResult(com.velocitypowered.api.event.ResultedEvent.ComponentResult.denied(
-                    Component.text("RedeCrystal está em manutenção. Volte em breve!")));
+        if (!crystal.configProvider().get(GLOBAL_CONFIG).bool("maintenance", false)) {
+            return;
         }
+        String name = event.getPlayer().getUsername().toLowerCase(Locale.ROOT);
+        if (bypassNames().contains(name)) {
+            logger.info("Maintenance bypass for {}", event.getPlayer().getUsername());
+            return;
+        }
+        event.setResult(com.velocitypowered.api.event.ResultedEvent.ComponentResult.denied(
+                maintenanceKick()));
+    }
+
+    /** Swap the server-list MOTD for a maintenance banner while maintenance is on. */
+    @Subscribe
+    public void onPing(ProxyPingEvent event) {
+        if (!crystal.configProvider().get(GLOBAL_CONFIG).bool("maintenance", false)) {
+            return; // normal MOTD comes from velocity.toml
+        }
+        ServerPing maintenancePing = event.getPing().asBuilder()
+                .description(maintenanceMotd())
+                .build();
+        event.setPing(maintenancePing);
+    }
+
+    /** Lower-cased set of player names allowed in during maintenance. */
+    private Set<String> bypassNames() {
+        Object raw = crystal.configProvider().get(GLOBAL_CONFIG).value("maintenanceBypass");
+        if (raw instanceof List<?> list) {
+            return list.stream().map(o -> String.valueOf(o).toLowerCase(Locale.ROOT))
+                    .collect(Collectors.toSet());
+        }
+        return Set.of();
+    }
+
+    /** Two-line maintenance MOTD with the purple RedeCrystal wordmark. */
+    private static Component maintenanceMotd() {
+        Component line1 = Component.text("  REDECRYSTAL", PURPLE, TextDecoration.BOLD)
+                .append(Component.text(" » ", NamedTextColor.DARK_GRAY).decoration(TextDecoration.BOLD, false))
+                .append(Component.text("Em manutenção", NamedTextColor.RED, TextDecoration.BOLD));
+        Component line2 = Component.text("  Estamos melhorando a experiência. Voltamos já!", PURPLE_SOFT);
+        return line1.append(Component.newline()).append(line2);
+    }
+
+    /** Kick screen shown to non-bypass players during maintenance. */
+    private static Component maintenanceKick() {
+        return Component.text("REDECRYSTAL", PURPLE, TextDecoration.BOLD)
+                .append(Component.newline())
+                .append(Component.newline())
+                .append(Component.text("A rede está em manutenção.", NamedTextColor.WHITE))
+                .append(Component.newline())
+                .append(Component.text("Estamos melhorando a experiência — volte em breve!", PURPLE_SOFT));
     }
 
     /** Send freshly-connected players to a login server first. */

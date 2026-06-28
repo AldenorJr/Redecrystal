@@ -19,6 +19,15 @@ centralized backend, event-driven architecture (Kafka), distributed cache
 | Messaging         | Apache Kafka (KRaft, no ZooKeeper)                  |
 | Config            | Centralized via core-service; hot-reload via Kafka  |
 
+## Padrões de código
+
+Convenções de _clean code_ do projeto (records para DTO, threading
+async→main thread do Bukkit, camadas `api/application/domain` no backend,
+_optimistic locking_, GUI-first, etc.) estão em
+**[`docs/CODING_STANDARDS.md`](docs/CODING_STANDARDS.md)** — leitura obrigatória
+antes de contribuir. O resumo para agentes/IA fica em
+[`CLAUDE.md`](CLAUDE.md); a formatação mecânica é garantida pelo `.editorconfig`.
+
 ## Project layout
 
 ```
@@ -195,6 +204,14 @@ Mandatory metrics and where they come from:
 | CPU | `redecrystal_server_cpu_load` (MC) + `process_cpu_usage` (backend) |
 
 ## Lobby features (parkour, hotbar, /tell) + worlds
+
+> **Convenção de UX — prefira sempre o menu GUI.** Toda interação do jogador deve,
+> por padrão, acontecer através de menus GUI (inventários clicáveis), e não por
+> comandos de chat. Os comandos existem como atalho/fallback (e para
+> administração), mas o caminho principal exposto ao jogador é sempre o GUI:
+> a hotbar abre o seletor de jogos em GUI, o perfil em GUI, etc. Ao adicionar
+> uma nova feature de jogador, comece pelo menu GUI e só exponha comando se
+> realmente for necessário.
 
 - **crystal-parkour** — in-lobby parkour with a course configured live via admin
   commands (`/parkour setstart|addcheckpoint|setfinish`, stored in the central

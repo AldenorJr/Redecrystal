@@ -34,6 +34,15 @@ public class ProfileEntity {
     @Column(name = "play_seconds", nullable = false)
     private long playSeconds;
 
+    @Column(name = "kills", nullable = false)
+    private long kills;
+
+    @Column(name = "deaths", nullable = false)
+    private long deaths;
+
+    @Column(name = "messages_sent", nullable = false)
+    private long messagesSent;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
@@ -66,6 +75,19 @@ public class ProfileEntity {
         this.updatedAt = OffsetDateTime.now();
     }
 
+    /** Apply additive combat deltas (kills/deaths). */
+    public void addCombat(long killsDelta, long deathsDelta) {
+        this.kills += killsDelta;
+        this.deaths += deathsDelta;
+        this.updatedAt = OffsetDateTime.now();
+    }
+
+    /** Increment the lifetime message counter. */
+    public void addMessages(long delta) {
+        this.messagesSent += delta;
+        this.updatedAt = OffsetDateTime.now();
+    }
+
     public void touchUsername(String name) {
         if (name != null && !name.equals(this.username)) {
             this.username = name;
@@ -80,5 +102,9 @@ public class ProfileEntity {
     public long getExperience() { return experience; }
     public long getCoins() { return coins; }
     public long getPlaySeconds() { return playSeconds; }
+    public long getKills() { return kills; }
+    public long getDeaths() { return deaths; }
+    public long getMessagesSent() { return messagesSent; }
+    public OffsetDateTime getCreatedAt() { return createdAt; }
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
 }
