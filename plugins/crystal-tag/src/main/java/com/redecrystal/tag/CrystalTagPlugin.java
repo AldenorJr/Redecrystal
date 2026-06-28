@@ -2,6 +2,8 @@ package com.redecrystal.tag;
 
 import com.redecrystal.core.CrystalConfig;
 import com.redecrystal.core.CrystalCore;
+import com.redecrystal.tag.listener.NametagService;
+import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /**
@@ -17,6 +19,10 @@ public final class CrystalTagPlugin extends JavaPlugin {
     public void onEnable() {
         this.crystal = CrystalCore.bootstrap(CrystalConfig.fromEnv());
         crystal.configProvider().preload("chat"); // cargo/role config (shared)
+        NametagService nametags = new NametagService(this, crystal);
+        PluginManager pm = getServer().getPluginManager();
+        pm.registerEvents(nametags, this);
+        nametags.start();
         getLogger().info("CrystalTag enabled.");
     }
 
