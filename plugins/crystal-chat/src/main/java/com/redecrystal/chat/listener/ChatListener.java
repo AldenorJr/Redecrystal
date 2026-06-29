@@ -24,6 +24,8 @@ public final class ChatListener implements Listener {
     private final CrystalCore crystal;
     private final ChatService chat;
 
+    private static final String COLOR_PERM = "crystal.chat.color";
+
     public ChatListener(CrystalChatPlugin plugin, CrystalCore crystal, ChatService chat) {
         this.plugin = plugin;
         this.crystal = crystal;
@@ -40,13 +42,15 @@ public final class ChatListener implements Listener {
         // An admin override wins over the permission-based resolution; fails open.
         String overrideId = TagOverrides.read(crystal.redis(), event.getPlayer().getUniqueId());
         ChatService.Tag tag = chat.resolveTag(event.getPlayer(), overrideId);
+        boolean allowColors = event.getPlayer().hasPermission(COLOR_PERM);
         crystal.kafka().publish(KafkaTopics.PLAYER_CHAT, event.getPlayer().getUniqueId().toString(), Map.of(
                 "scope", "global",
                 "player", event.getPlayer().getName(),
                 "message", clean,
                 "server", crystal.config().serverId(),
                 "prefix", tag.prefix(),
-                "nameColor", tag.nameColor()));
+                "nameColor", tag.nameColor(),
+                "allowColors", String.valueOf(allowColors)));
 
         // Persist to the backend chat history (+ message counter), off-thread.
         final String uuid = event.getPlayer().getUniqueId().toString();

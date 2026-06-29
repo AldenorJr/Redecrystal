@@ -14,3 +14,7 @@ commands:
     usage: /r <mensagem>
   telltoggle:
     description: Toggle receiving private messages
+permissions:
+  crystal.chat.color:
+    description: Usar códigos de cor (&) na mensagem de chat
+    default: op
