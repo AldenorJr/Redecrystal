@@ -17,6 +17,7 @@ import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 public final class CommandFilterListener implements Listener {
 
     private static final MiniMessage MM = MiniMessage.miniMessage();
+    private static final String ADMIN_PERM = "crystal.login.admin";
 
     private final CrystalLoginPlugin plugin;
 
@@ -36,6 +37,22 @@ public final class CommandFilterListener implements Listener {
         String cmd = parts[0].toLowerCase();
         switch (cmd) {
             case "/login", "/l" -> {
+                // Staff subcommands are checked BEFORE treating args as a password,
+                // and gated by permission so a normal player can never trigger them
+                // (their password just falls through to the auth path below).
+                if (parts.length >= 2 && player.hasPermission(ADMIN_PERM)) {
+                    switch (parts[1].toLowerCase()) {
+                        case "manutencao", "manutenção" -> {
+                            plugin.toggleEditMode(player);
+                            return;
+                        }
+                        case "setspawn" -> {
+                            plugin.setLoginSpawn(player);
+                            return;
+                        }
+                        default -> { /* fall through to password handling */ }
+                    }
+                }
                 if (parts.length < 2) {
                     send(player, "<red>Uso: /login <senha>");
                     return;
