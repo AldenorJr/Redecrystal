@@ -59,6 +59,7 @@
         <module>crystal-tab</module>
         <module>crystal-tag</module>
         <module>crystal-skin</module>
+        <module>crystal-hologram</module>
     </modules>
 
     <dependencyManagement>
