@@ -47,7 +47,7 @@ public final class LoginGuard implements Listener {
     }
 
     private boolean locked(Player p) {
-        return !plugin.isAuthenticated(p.getUniqueId());
+        return !plugin.isAuthenticated(p.getUniqueId()) && !plugin.isEditing(p.getUniqueId());
     }
 
     /** Anti-bot: cap connections per IP in a short window. Runs off the main thread. */
@@ -77,6 +77,9 @@ public final class LoginGuard implements Listener {
 
     @EventHandler
     public void onMove(PlayerMoveEvent event) {
+        if (!locked(event.getPlayer())) {
+            return; // staff in edit mode (or authenticated) flies freely
+        }
         Location from = event.getFrom();
         Location to = event.getTo();
         if (from.getBlockX() == to.getBlockX()

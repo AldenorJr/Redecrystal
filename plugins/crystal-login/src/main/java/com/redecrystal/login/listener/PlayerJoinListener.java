@@ -36,6 +36,9 @@ public final class PlayerJoinListener implements Listener {
         player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS,
                 PotionEffect.INFINITE_DURATION, 0, false, false, false));
 
+        // Land the frozen player on the configured login spawn (no-op if unset).
+        plugin.applyLoginSpawn(player);
+
         // Kick the player if they sit on the login screen too long (frees the slot).
         plugin.scheduleLoginTimeout(player);
         // Tailor the prompt to whether the account exists (off the main thread).
