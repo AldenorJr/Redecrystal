@@ -22,3 +22,6 @@ permissions:
   crystal.maintenance:
     description: Liga/desliga o modo manutenção da rede
     default: op
+  crystal.lobby.joinannounce:
+    description: Anuncia no chat do lobby quando este jogador entra
+    default: op

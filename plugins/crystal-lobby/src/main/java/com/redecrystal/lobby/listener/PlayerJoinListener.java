@@ -1,11 +1,15 @@
 package com.redecrystal.lobby.listener;
 
 import com.redecrystal.core.CrystalCore;
+import com.redecrystal.core.cargo.CargoResolver;
+import com.redecrystal.core.cargo.TagOverrides;
 import com.redecrystal.core.messaging.KafkaTopics;
 import com.redecrystal.lobby.CrystalLobbyPlugin;
 import java.util.Map;
+import java.util.UUID;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -21,6 +25,10 @@ import org.bukkit.event.player.PlayerJoinEvent;
 public final class PlayerJoinListener implements Listener {
 
     private static final String FLY_PERM = "crystal.fly";
+    private static final String JOIN_ANNOUNCE_PERM = "crystal.lobby.joinannounce";
+    private static final MiniMessage MM = MiniMessage.miniMessage();
+    /** Trailing text of the join line, in PT, rendered grey. */
+    private static final String JOIN_SUFFIX = "<gray> entrou no lobby!";
 
     private final CrystalLobbyPlugin plugin;
     private final CrystalCore crystal;
@@ -32,6 +40,7 @@ public final class PlayerJoinListener implements Listener {
 
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
+        event.joinMessage(null); // lobby chat is curated; only VIP/staff are announced below
         Player player = event.getPlayer();
         String uuid = player.getUniqueId().toString();
 
@@ -59,5 +68,29 @@ public final class PlayerJoinListener implements Listener {
             player.setFlying(true);
         }
         plugin.sendToSpawn(player);
+        announceJoin(player);
+    }
+
+    /**
+     * Broadcast "[Cargo] Name entrou no lobby!" on THIS lobby — only for players
+     * with the announce permission (VIP/staff). The cargo prefix/name colour come
+     * from the shared {@code chat} config, resolved the same way as the sidebar.
+     */
+    private void announceJoin(Player player) {
+        if (!player.hasPermission(JOIN_ANNOUNCE_PERM)) {
+            return;
+        }
+        UUID uuid = player.getUniqueId();
+        String overrideId = TagOverrides.read(crystal.redis(), uuid);
+        CargoResolver.Cargo cargo = CargoResolver.resolve(
+                crystal.configProvider().get("chat"), overrideId, player::hasPermission);
+
+        Component name = MM.deserialize((cargo == null ? "<white>" : cargo.nameColor()) + player.getName());
+        Component suffix = MM.deserialize(JOIN_SUFFIX);
+        Component line = cargo == null
+                ? name.append(suffix)
+                : MM.deserialize(cargo.prefix()).append(Component.text(" ")).append(name).append(suffix);
+
+        plugin.getServer().sendMessage(line);
     }
 }
