@@ -1,7 +1,6 @@
-package com.redecrystal.lobby;
+package com.redecrystal.login.listener;
 
 import com.redecrystal.core.CrystalCore;
-import com.redecrystal.core.cargo.CargoResolver;
 import java.util.ArrayList;
 import java.util.List;
 import net.kyori.adventure.text.Component;
@@ -20,12 +19,11 @@ import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
 
 /**
- * Per-player lobby sidebar scoreboard. Each player gets their own board (built on
- * join) whose dynamic lines (online count, cargo) are refreshed on a timer. Lines
- * use the invisible-entry + team-prefix trick so they update flicker-free. Content
- * is purple-branded to match the MOTD/tab.
+ * Per-player login sidebar — same purple branding and flicker-free (invisible
+ * entry + team prefix) technique as the lobby scoreboard, so the login server
+ * looks like the rest of the network. Lines tell the player to authenticate.
  */
-public final class LobbyScoreboard implements Listener {
+public final class LoginScoreboard implements Listener {
 
     private static final MiniMessage MM = MiniMessage.miniMessage();
     private static final String TITLE = "<gradient:#b14aed:#8e2de2><bold>REDECRYSTAL</bold></gradient>";
@@ -34,7 +32,7 @@ public final class LobbyScoreboard implements Listener {
     private final JavaPlugin plugin;
     private final CrystalCore crystal;
 
-    public LobbyScoreboard(JavaPlugin plugin, CrystalCore crystal) {
+    public LoginScoreboard(JavaPlugin plugin, CrystalCore crystal) {
         this.plugin = plugin;
         this.crystal = crystal;
     }
@@ -57,7 +55,6 @@ public final class LobbyScoreboard implements Listener {
         build(event.getPlayer());
     }
 
-    /** Create the board (objective + one team per line) and assign it to the player. */
     private void build(Player p) {
         Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
         Objective obj = board.registerNewObjective("crystal", Criteria.DUMMY, MM.deserialize(TITLE));
@@ -72,14 +69,13 @@ public final class LobbyScoreboard implements Listener {
         update(p);
     }
 
-    /** Refresh the dynamic line contents on the player's existing board. */
     private void update(Player p) {
         Scoreboard board = p.getScoreboard();
         if (board == null || board.getObjective("crystal") == null) {
             build(p);
             return;
         }
-        List<Component> lines = lines(p);
+        List<Component> lines = lines();
         for (int i = 0; i < LINES; i++) {
             Team team = board.getTeam("line" + i);
             if (team != null) {
@@ -88,19 +84,15 @@ public final class LobbyScoreboard implements Listener {
         }
     }
 
-    /** The 8 sidebar lines, top to bottom. */
-    private List<Component> lines(Player p) {
+    /** The sidebar lines, top to bottom. */
+    private List<Component> lines() {
         int online = (int) crystal.redis().onlineCount();
-        CargoResolver.Cargo cargo = CargoResolver.resolve(
-                crystal.configProvider().get("chat"), p::hasPermission);
-        String cargoMini = cargo == null ? "<gray>[MEMBRO]" : cargo.prefix();
-
         List<Component> l = new ArrayList<>();
         l.add(Component.empty());
-        l.add(mm("<gray>Cargo: ").append(mm(cargoMini)));
+        l.add(mm("<gray>Bem-vindo(a) à rede!"));
         l.add(Component.empty());
+        l.add(mm("<#b14aed>Faça login para jogar"));
         l.add(mm("<gray>Online: <#b14aed>" + online));
-        l.add(mm("<gray>Servidor: <#b14aed>" + crystal.config().serverId()));
         l.add(Component.empty());
         l.add(mm("<#b14aed>redecrystal.com.br"));
         return l;

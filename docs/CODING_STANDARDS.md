@@ -75,6 +75,68 @@ Ordem dentro de uma classe (como em `LobbyHotbar`):
 Use o divisor `// ── nome ──` para separar seções de uma classe grande. É o
 padrão do projeto e torna arquivos longos navegáveis.
 
+### 3.1 Estrutura de packages: `listener/` e `commands/` (obrigatório)
+
+Cada plugin separa **listeners** e **comandos** em packages dedicados sob o seu
+package base (`com.redecrystal.<módulo>`). A classe principal `Crystal…Plugin`
+**não** implementa `Listener` nem contém `onCommand`: ela só inicializa o SDK,
+constrói os serviços, **registra** os listeners/comandos e cuida do ciclo de
+vida. `crystal-lobby` é a implementação de referência.
+
+```
+com.redecrystal.lobby
+├── CrystalLobbyPlugin.java      // boot + registro, sem @EventHandler/onCommand
+├── listener/                    // tudo que reage a eventos
+│   ├── PlayerJoinListener.java
+│   ├── PlayerQuitListener.java
+│   ├── LobbyProtection.java     // listener coeso (ver exceção abaixo)
+│   ├── LobbyScoreboard.java
+│   └── LobbyHotbar.java
+└── commands/                    // um arquivo por comando
+    ├── LobbyCommand.java
+    └── MaintenanceCommand.java
+```
+
+**Listeners — `<base>.listener`:**
+
+- **Regra:** cada evento independente vive na sua própria classe `…Listener`
+  (sufixo `Listener`), com um único `@EventHandler`, nomeada pelo evento/assunto
+  (`PlayerJoinListener`), não pela classe do plugin.
+- **Exceção (agrupar por coesão):** uma _feature_ coesa e/ou com estado
+  compartilhado — um fluxo de GUI (`LobbyHotbar`), um conjunto de regras de
+  proteção (`LobbyProtection`), um placar (`LobbyScoreboard`) — mantém os seus
+  handlers relacionados em **uma só** classe listener, nomeada pela _feature_.
+  Quebrar estado compartilhado entre N classes custa mais do que ajuda.
+- Dependências entram **pelo construtor** (`plugin`, `crystal`, serviços). Sem
+  singletons/estática para passar estado.
+
+**Comandos — `<base>.commands`:**
+
+- **Um arquivo por comando**, implementando `CommandExecutor` (e `TabCompleter`
+  quando houver _tab-complete_). Nome = comando + `Command` (`LobbyCommand`,
+  `MaintenanceCommand`).
+- Registrado na classe principal: `getCommand("lobby").setExecutor(new
+  LobbyCommand(this, crystal));`. O comando continua declarado no `plugin.yml`.
+- Permissões e _config keys_ específicas do comando moram **no** comando
+  (`private static final String ADMIN_PERM = …`), não na classe principal.
+
+**Registro na classe principal (`onEnable`):**
+
+```java
+var pm = getServer().getPluginManager();
+pm.registerEvents(new PlayerJoinListener(this, crystal), this);
+pm.registerEvents(new PlayerQuitListener(crystal), this);
+pm.registerEvents(new LobbyProtection(this), this);
+getCommand("lobby").setExecutor(new LobbyCommand(this, crystal));
+getCommand("manutencao").setExecutor(new MaintenanceCommand(this, crystal));
+```
+
+**Proxy Velocity (`crystal-bungee`):** mesmo princípio adaptado ao idioma do
+Velocity — listeners `@Subscribe` em `listener/` (registrados via
+`EventManager`), comandos em `commands/` (via `CommandManager`). A lógica coesa
+de proxy (descoberta de fleet, roteamento) pode ficar agrupada pela mesma
+exceção de coesão.
+
 ---
 
 ## 4. Tipos, imutabilidade e dados
@@ -257,6 +319,8 @@ Antes de abrir/encerrar uma mudança:
 
 - [ ] Compila: `mvn -pl <módulo> -am compile` (ou `make plugins`).
 - [ ] Segue o estilo do arquivo vizinho (seções, idioma, nomenclatura).
+- [ ] Listeners em `listener/` e comandos em `commands/` (ver §3.1); a classe
+      principal não implementa `Listener` nem tem `onCommand`.
 - [ ] Nenhuma chamada bloqueante (HTTP/DB) na main thread do servidor.
 - [ ] Recursos/entidades criados são limpos no quit/disable.
 - [ ] Erros de backend têm fallback; nada derruba o servidor.

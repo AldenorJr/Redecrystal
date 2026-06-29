@@ -57,6 +57,8 @@
         <module>crystal-parkour</module>
         <module>crystal-worldinit</module>
         <module>crystal-tab</module>
+        <module>crystal-tag</module>
+        <module>crystal-skin</module>
     </modules>
 
     <dependencyManagement>

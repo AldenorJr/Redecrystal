@@ -1,5 +1,6 @@
-package com.redecrystal.lobby;
+package com.redecrystal.lobby.listener;
 
+import com.redecrystal.lobby.CrystalLobbyPlugin;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Player;

@@ -32,6 +32,11 @@ public final class CrystalWorldInitPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        // Hub world rules — re-applied on every boot (idempotent), independent of
+        // the one-time schematic paste. A little after enable so the world is ready.
+        WorldRules worldRules = new WorldRules(this, env("CRYSTAL_WORLD", "world"));
+        Bukkit.getScheduler().runTaskLater(this, worldRules::lock, 40L);
+
         String schemPath = env("CRYSTAL_WORLD_SCHEMATIC", "");
         if (schemPath.isBlank()) {
             getLogger().info("CRYSTAL_WORLD_SCHEMATIC not set — nothing to initialize.");
