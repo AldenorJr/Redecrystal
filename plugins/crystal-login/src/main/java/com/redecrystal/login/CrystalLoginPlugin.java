@@ -21,8 +21,11 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.title.Title;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.World;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -139,6 +142,63 @@ public final class CrystalLoginPlugin extends JavaPlugin {
     private static String describe(Location l) {
         return l == null ? "unset"
                 : (Math.round(l.getX()) + "," + Math.round(l.getY()) + "," + Math.round(l.getZ()));
+    }
+
+    // ── staff edit mode (/login manutencao): unfreeze one staff member to fly + set spawn ──
+
+    /** Toggle the caller's individual edit mode: unfreeze to fly, or re-freeze. */
+    public void toggleEditMode(Player player) {
+        UUID uuid = player.getUniqueId();
+        if (editing.remove(uuid)) {
+            // Leaving edit mode: restore the frozen login state.
+            freeze(player);
+            applyLoginSpawn(player);
+            scheduleLoginTimeout(player);
+            send(player, "<#b14aed>» <white>Modo edição <red>OFF<white>.");
+            return;
+        }
+        // Entering edit mode: free movement, cancel the kick timer, drop blindness.
+        editing.add(uuid);
+        cancelTimeout(uuid);
+        player.clearActivePotionEffects();
+        player.setGameMode(GameMode.CREATIVE);
+        player.setAllowFlight(true);
+        player.setFlying(true);
+        send(player, "<#b14aed>» <white>Modo edição <green>ON<white>. Voe até o local e use <#b14aed>/login setspawn<white>.");
+    }
+
+    /** Re-apply the frozen login state (mirror of PlayerJoinListener). */
+    private void freeze(Player player) {
+        player.setGameMode(GameMode.ADVENTURE);
+        player.setHealth(20.0);
+        player.setFoodLevel(20);
+        player.setFlying(false);
+        player.setAllowFlight(false);
+        player.getInventory().clear();
+        player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS,
+                PotionEffect.INFINITE_DURATION, 0, false, false, false));
+    }
+
+    /** Persist the caller's current location as the login spawn for the whole network. */
+    public void setLoginSpawn(Player player) {
+        Location loc = player.getLocation();
+        getServer().getScheduler().runTaskAsynchronously(this, () -> {
+            try {
+                Map<String, Object> cfg = new HashMap<>(crystal.configProvider().get(CONFIG_KEY).config());
+                cfg.put("spawn", Map.of(
+                        "x", round(loc.getX()), "y", round(loc.getY()), "z", round(loc.getZ()),
+                        "yaw", round(loc.getYaw()), "pitch", round(loc.getPitch())));
+                crystal.backend().putConfig(CONFIG_KEY, cfg);
+                send(player, "<green>Spawn do login definido para todos os servidores de login.");
+            } catch (Exception e) {
+                send(player, "<red>Falha ao salvar o spawn. Tente novamente.");
+                getLogger().warning("setLoginSpawn failed for " + player.getName() + ": " + e.getMessage());
+            }
+        });
+    }
+
+    private static double round(double v) {
+        return Math.round(v * 100.0) / 100.0;
     }
 
     // ── join: freeze + prompt ──
