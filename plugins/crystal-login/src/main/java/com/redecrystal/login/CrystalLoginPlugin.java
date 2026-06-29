@@ -5,6 +5,7 @@ import com.redecrystal.core.CrystalCore;
 import com.redecrystal.core.http.AccountStatus;
 import com.redecrystal.core.http.AuthToken;
 import com.redecrystal.core.http.BackendHttpClient.BackendException;
+import com.redecrystal.core.http.RemoteConfig;
 import com.redecrystal.core.messaging.KafkaTopics;
 import com.redecrystal.login.listener.CommandFilterListener;
 import com.redecrystal.login.listener.LoginGuard;
@@ -13,12 +14,15 @@ import com.redecrystal.login.listener.PlayerJoinListener;
 import com.redecrystal.login.listener.PlayerQuitListener;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.title.Title;
+import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -52,6 +56,8 @@ public final class CrystalLoginPlugin extends JavaPlugin {
     private final Set<UUID> authenticated = ConcurrentHashMap.newKeySet();
     private final Map<UUID, BukkitTask> timeouts = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> attempts = new ConcurrentHashMap<>();
+    private final Set<UUID> editing = ConcurrentHashMap.newKeySet();
+    private volatile Location loginSpawn;
 
     @Override
     public void onEnable() {
@@ -59,6 +65,11 @@ public final class CrystalLoginPlugin extends JavaPlugin {
         crystal.configProvider().preload(CONFIG_KEY);
         this.loginTimeoutSeconds = crystal.configProvider().get(CONFIG_KEY)
                 .integer("loginTimeoutSeconds", DEFAULT_TIMEOUT_SECONDS);
+        applyLoginSpawnConfig(crystal.configProvider().get(CONFIG_KEY));
+        crystal.configProvider().onChange(CONFIG_KEY, updated -> {
+            applyLoginSpawnConfig(updated);
+            getLogger().info("Hot-reloaded login spawn: " + describe(loginSpawn));
+        });
         crystal.registerThisServer(crystal.configProvider().get(CONFIG_KEY).integer("maxPlayers", 200));
         crystal.startHeartbeat(() -> getServer().getOnlinePlayers().size(),
                 () -> getServer().getTPS()[0]);
@@ -86,6 +97,48 @@ public final class CrystalLoginPlugin extends JavaPlugin {
 
     public boolean isAuthenticated(UUID uuid) {
         return authenticated.contains(uuid);
+    }
+
+    // ── login spawn (config-driven; set live with /login setspawn) ──
+
+    /** Parse the spawn from the {@code login} config; null when unset. */
+    private void applyLoginSpawnConfig(RemoteConfig cfg) {
+        this.loginSpawn = parseSpawn(cfg.value("spawn"));
+    }
+
+    private Location parseSpawn(Object raw) {
+        World world = getServer().getWorlds().isEmpty() ? null : getServer().getWorlds().get(0);
+        if (world == null || !(raw instanceof Map<?, ?> m) || m.get("x") == null) {
+            return null;
+        }
+        return new Location(world, num(m.get("x")), num(m.get("y")), num(m.get("z")),
+                (float) num(m.get("yaw")), (float) num(m.get("pitch")));
+    }
+
+    private static double num(Object o) {
+        return o instanceof Number n ? n.doubleValue() : 0;
+    }
+
+    /** The configured login spawn, or null when none is set. */
+    public Location getLoginSpawn() {
+        return loginSpawn == null ? null : loginSpawn.clone();
+    }
+
+    /** Teleport the player to the configured login spawn, if any. */
+    public void applyLoginSpawn(Player player) {
+        Location s = getLoginSpawn();
+        if (s != null) {
+            player.teleport(s);
+        }
+    }
+
+    public boolean isEditing(UUID uuid) {
+        return editing.contains(uuid);
+    }
+
+    private static String describe(Location l) {
+        return l == null ? "unset"
+                : (Math.round(l.getX()) + "," + Math.round(l.getY()) + "," + Math.round(l.getZ()));
     }
 
     // ── join: freeze + prompt ──
@@ -204,6 +257,7 @@ public final class CrystalLoginPlugin extends JavaPlugin {
         // so we must NOT clear Redis here (the player may just be moving to a lobby).
         authenticated.remove(uuid);
         attempts.remove(uuid);
+        editing.remove(uuid);
         cancelTimeout(uuid);
     }
 
