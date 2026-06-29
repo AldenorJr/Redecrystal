@@ -27,6 +27,7 @@ public final class PlayerJoinListener implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
 
+        event.joinMessage(null); // login screen is auth-only; no vanilla join broadcast
         player.setGameMode(GameMode.ADVENTURE);
         player.setHealth(20.0);
         player.setFoodLevel(20);
