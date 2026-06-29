@@ -146,19 +146,35 @@ public final class CrystalLoginPlugin extends JavaPlugin {
 
     // ── staff edit mode (/login manutencao): unfreeze one staff member to fly + set spawn ──
 
-    /** Toggle the caller's individual edit mode: unfreeze to fly, or re-freeze. */
-    public void toggleEditMode(Player player) {
+    /**
+     * Enter edit mode after verifying the caller's password against the backend.
+     * The login server is offline-mode, so the permission alone is keyed to a
+     * spoofable username — we never unfreeze a staff member who can't prove the
+     * account. Verification reuses the normal login call but discards the token:
+     * no session, no JWT, no proxy routing.
+     */
+    public void enterEditMode(Player player, String password) {
         UUID uuid = player.getUniqueId();
-        if (editing.remove(uuid)) {
-            // Leaving edit mode: restore the frozen login state.
-            freeze(player);
-            applyLoginSpawn(player);
-            scheduleLoginTimeout(player);
-            resolveAndPrompt(player);
-            send(player, "<#b14aed>» <white>Modo edição <red>OFF<white>.");
+        if (isEditing(uuid)) {
+            return; // already editing
+        }
+        String name = player.getName();
+        getServer().getScheduler().runTaskAsynchronously(this, () -> {
+            try {
+                crystal.backend().login(uuid.toString(), name, false, password); // throws on bad credentials
+                getServer().getScheduler().runTask(this, () -> applyEditMode(player));
+            } catch (BackendException e) {
+                send(player, "<red>Senha incorreta. Use <white>/login manutencao <senha><red>.");
+            }
+        });
+    }
+
+    /** Unfreeze the staff member after a verified password (main thread). */
+    private void applyEditMode(Player player) {
+        if (!player.isOnline()) {
             return;
         }
-        // Entering edit mode: free movement, cancel the kick timer, drop blindness.
+        UUID uuid = player.getUniqueId();
         editing.add(uuid);
         cancelTimeout(uuid);
         player.clearActivePotionEffects();
@@ -166,6 +182,18 @@ public final class CrystalLoginPlugin extends JavaPlugin {
         player.setAllowFlight(true);
         player.setFlying(true);
         send(player, "<#b14aed>» <white>Modo edição <green>ON<white>. Voe até o local e use <#b14aed>/login setspawn<white>.");
+    }
+
+    /** Leave edit mode: restore the frozen login state and re-show the auth prompt. */
+    public void exitEditMode(Player player) {
+        if (!editing.remove(player.getUniqueId())) {
+            return; // not editing
+        }
+        freeze(player);
+        applyLoginSpawn(player);
+        scheduleLoginTimeout(player);
+        resolveAndPrompt(player);
+        send(player, "<#b14aed>» <white>Modo edição <red>OFF<white>.");
     }
 
     /** Re-apply the frozen login state (mirror of PlayerJoinListener). */
