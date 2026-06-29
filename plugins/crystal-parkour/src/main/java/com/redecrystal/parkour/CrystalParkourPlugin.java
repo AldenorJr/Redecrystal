@@ -63,7 +63,9 @@ public final class CrystalParkourPlugin extends JavaPlugin {
         pm.registerEvents(listener, this);
         this.topMenu = new ParkourTopMenu(this, crystal);
         pm.registerEvents(topMenu, this);
-        getCommand("parkour").setExecutor(new ParkourCommand(this, crystal, listener));
+        ParkourCommand parkourCmd = new ParkourCommand(this, crystal, listener, topMenu);
+        getCommand("parkour").setExecutor(parkourCmd);
+        getCommand("parkour").setTabCompleter(parkourCmd);
 
         this.hologram = new ParkourHologram(this);
         // Defer until the world is loaded; rebuildHolograms clears orphans first.
