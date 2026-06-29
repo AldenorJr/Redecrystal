@@ -84,14 +84,17 @@ final class HologramCommand implements CommandExecutor {
         }
         String id = args[1];
         Location loc = player.getLocation();
+        String worldName = loc.getWorld().getName();
+        double x = round(loc.getX());
+        double y = round(loc.getY());
+        double z = round(loc.getZ());
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
             HologramDef existing = find(id);
             if (existing == null) {
                 player.sendMessage(Component.text("Holograma '" + id + "' não existe.", NamedTextColor.RED));
                 return;
             }
-            HologramDef moved = new HologramDef(existing.id(), loc.getWorld().getName(),
-                    round(loc.getX()), round(loc.getY()), round(loc.getZ()), existing.lines());
+            HologramDef moved = new HologramDef(existing.id(), worldName, x, y, z, existing.lines());
             store.put(moved);
             player.sendMessage(Component.text("Holograma '" + id + "' movido.", NamedTextColor.GREEN));
         });
