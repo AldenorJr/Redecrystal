@@ -5,6 +5,7 @@ import com.redecrystal.core.CrystalCore;
 import com.redecrystal.core.http.ParkourEntry;
 import com.redecrystal.parkour.commands.ParkourCommand;
 import com.redecrystal.parkour.listener.ParkourListener;
+import com.redecrystal.parkour.menu.ParkourTopMenu;
 import java.util.List;
 import java.util.Map;
 import net.kyori.adventure.text.Component;
@@ -46,6 +47,7 @@ public final class CrystalParkourPlugin extends JavaPlugin {
     private volatile ParkourCourse course;
     private ParkourHologram hologram;
     private ParkourListener listener;
+    private ParkourTopMenu topMenu;
 
     @Override
     public void onEnable() {
@@ -59,6 +61,8 @@ public final class CrystalParkourPlugin extends JavaPlugin {
         PluginManager pm = getServer().getPluginManager();
         this.listener = new ParkourListener(this, crystal);
         pm.registerEvents(listener, this);
+        this.topMenu = new ParkourTopMenu(this, crystal);
+        pm.registerEvents(topMenu, this);
         getCommand("parkour").setExecutor(new ParkourCommand(this, crystal, listener));
 
         this.hologram = new ParkourHologram(this);
@@ -91,6 +95,11 @@ public final class CrystalParkourPlugin extends JavaPlugin {
     /** The current course; read by the listener and command. */
     public ParkourCourse course() {
         return course;
+    }
+
+    /** The leaderboard GUI, opened by {@code /parkour top}. */
+    public ParkourTopMenu topMenu() {
+        return topMenu;
     }
 
     // ── holograms (one over every point) ──
