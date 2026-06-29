@@ -154,6 +154,7 @@ public final class CrystalLoginPlugin extends JavaPlugin {
             freeze(player);
             applyLoginSpawn(player);
             scheduleLoginTimeout(player);
+            resolveAndPrompt(player);
             send(player, "<#b14aed>» <white>Modo edição <red>OFF<white>.");
             return;
         }
