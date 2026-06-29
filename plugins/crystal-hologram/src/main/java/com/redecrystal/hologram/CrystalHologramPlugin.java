@@ -19,7 +19,7 @@ public final class CrystalHologramPlugin extends JavaPlugin {
         this.crystal = CrystalCore.bootstrap(CrystalConfig.fromEnv());
         crystal.configProvider().preload(HologramStore.CONFIG_KEY);
         HologramStore store = new HologramStore(crystal);
-        this.renderer = new HologramRenderer(this);
+        this.renderer = new HologramRenderer(this, crystal.config().serverType());
         // Defer the first render one tick so all worlds are loaded before we spawn.
         getServer().getScheduler().runTask(this, () -> renderer.render(store.all()));
         // Hot-reload: the Kafka callback is off-thread, so bounce to the main thread.

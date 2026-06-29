@@ -65,7 +65,7 @@ final class HologramCommand implements CommandExecutor {
         String joined = String.join(" ", List.of(args).subList(2, args.length));
         List<String> lines = List.of(joined.split(LINE_SPLIT, -1));
         Location loc = player.getLocation();
-        HologramDef def = new HologramDef(id, loc.getWorld().getName(),
+        HologramDef def = new HologramDef(id, crystal.config().serverType(), loc.getWorld().getName(),
                 round(loc.getX()), round(loc.getY()), round(loc.getZ()), lines);
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
             store.put(def);
@@ -94,7 +94,7 @@ final class HologramCommand implements CommandExecutor {
                 player.sendMessage(Component.text("Holograma '" + id + "' não existe.", NamedTextColor.RED));
                 return;
             }
-            HologramDef moved = new HologramDef(existing.id(), worldName, x, y, z, existing.lines());
+            HologramDef moved = new HologramDef(existing.id(), existing.type(), worldName, x, y, z, existing.lines());
             store.put(moved);
             player.sendMessage(Component.text("Holograma '" + id + "' movido.", NamedTextColor.GREEN));
         });
@@ -123,7 +123,7 @@ final class HologramCommand implements CommandExecutor {
             }
             sender.sendMessage(Component.text("Hologramas (" + all.size() + "):", NamedTextColor.AQUA));
             for (HologramDef d : all) {
-                sender.sendMessage(Component.text(" • " + d.id() + " (" + d.world() + ")", NamedTextColor.GRAY));
+                sender.sendMessage(Component.text(" • " + d.id() + " (" + d.type() + " @ " + d.world() + ")", NamedTextColor.GRAY));
             }
         });
     }

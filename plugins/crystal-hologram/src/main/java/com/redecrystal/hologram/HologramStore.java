@@ -76,19 +76,23 @@ final class HologramStore {
         if (id == null || world == null) {
             return null;
         }
+        Object type = m.get("type");
         List<String> lines = new ArrayList<>();
         if (m.get("lines") instanceof List<?> raw) {
             for (Object l : raw) {
                 lines.add(String.valueOf(l));
             }
         }
-        return new HologramDef(String.valueOf(id), String.valueOf(world),
-                num(m.get("x")), num(m.get("y")), num(m.get("z")), lines);
+        return new HologramDef(String.valueOf(id), type == null ? null : String.valueOf(type),
+                String.valueOf(world), num(m.get("x")), num(m.get("y")), num(m.get("z")), lines);
     }
 
     private static Map<String, Object> toMap(HologramDef d) {
         Map<String, Object> m = new HashMap<>();
         m.put("id", d.id());
+        if (d.type() != null) {
+            m.put("type", d.type());
+        }
         m.put("world", d.world());
         m.put("x", d.x());
         m.put("y", d.y());

@@ -23,16 +23,21 @@ final class HologramRenderer {
     private static final LegacyComponentSerializer LEGACY = LegacyComponentSerializer.legacyAmpersand();
 
     private final JavaPlugin plugin;
+    private final String serverType;
     private final List<TextDisplay> displays = new ArrayList<>();
 
-    HologramRenderer(JavaPlugin plugin) {
+    HologramRenderer(JavaPlugin plugin, String serverType) {
         this.plugin = plugin;
+        this.serverType = serverType;
     }
 
-    /** Clear everything and respawn from the given defs. Must run on the main thread. */
+    /** Clear everything and respawn the defs scoped to THIS server type. Main thread. */
     void render(List<HologramDef> defs) {
         clearAll();
         for (HologramDef def : defs) {
+            if (!serverType.equals(def.type())) {
+                continue; // belongs to another server type (or legacy/untyped) — not ours
+            }
             World w = plugin.getServer().getWorld(def.world());
             if (w == null) {
                 plugin.getLogger().warning("Hologram '" + def.id()
