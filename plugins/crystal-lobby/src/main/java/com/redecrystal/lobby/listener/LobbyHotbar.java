@@ -555,8 +555,13 @@ public final class LobbyHotbar implements Listener {
     private void openGames(Player p) {
         MenuHolder holder = new MenuHolder("games");
         Inventory inv = Bukkit.createInventory(holder, framedSize(1, false), Component.text("Modos de Jogo"));
-        inv.setItem(bodySlots(1).get(0), item(Material.FEATHER, "§aParkour", "§7Teste a sua agilidade",
-                "§eClique para ir ao início", "§7e pise na placa de ferro"));
+        inv.setItem(bodySlots(1).get(0), item(Material.FEATHER, "§a✦ Parkour",
+                "§7Desafie sua agilidade e seus",
+                "§7reflexos em um percurso cheio",
+                "§7de obstáculos e checkpoints.",
+                "",
+                "§eClique para começar — pise",
+                "§ena placa de ferro no início!"));
         p.openInventory(inv);
     }
 
