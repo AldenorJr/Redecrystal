@@ -18,6 +18,7 @@ public final class PlayerQuitListener implements Listener {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
+        event.quitMessage(null); // lobby chat is curated; no vanilla leave spam
         String uuid = event.getPlayer().getUniqueId().toString();
         crystal.redis().removeOnlinePlayer(uuid);
         crystal.kafka().publish(KafkaTopics.PLAYER_DISCONNECTED, uuid, Map.of(

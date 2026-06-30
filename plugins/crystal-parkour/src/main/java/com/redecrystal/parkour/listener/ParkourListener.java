@@ -4,6 +4,7 @@ import com.redecrystal.core.CrystalCore;
 import com.redecrystal.core.http.ParkourResult;
 import com.redecrystal.parkour.CrystalParkourPlugin;
 import com.redecrystal.parkour.ParkourCourse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -12,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.title.Title;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -116,7 +118,11 @@ public final class ParkourListener implements Listener {
         int cp = c.checkpointAt(to);
         if (cp > run.lastCheckpoint) {
             run.lastCheckpoint = cp;
-            p.sendActionBar(Component.text("Checkpoint " + (cp + 1) + "!", NamedTextColor.AQUA));
+            int total = c.checkpointCount();
+            p.showTitle(Title.title(
+                    Component.text("Checkpoint", NamedTextColor.GREEN),
+                    Component.text((cp + 1) + "/" + total, NamedTextColor.GRAY),
+                    Title.Times.times(Duration.ofMillis(150), Duration.ofMillis(1500), Duration.ofMillis(250))));
         }
         if (c.inFinish(to)) {
             finishRun(p, run);
@@ -193,9 +199,9 @@ public final class ParkourListener implements Listener {
     private void giveParkourHotbar(Player p) {
         PlayerInventory inv = p.getInventory();
         inv.setStorageContents(new ItemStack[36]); // clear storage; keep armour (cosmetics)
-        inv.setItem(0, item(ITEM_CHECKPOINT, "§b§lÚltimo Checkpoint", "§7Voltar ao último checkpoint"));
-        inv.setItem(1, item(ITEM_RESTART, "§e§lReiniciar", "§7Recomeçar do início"));
-        inv.setItem(8, item(ITEM_EXIT, "§c§lSair do Parkour", "§7Voltar ao lobby"));
+        inv.setItem(0, item(ITEM_CHECKPOINT, "§bÚltimo Checkpoint", "§7Voltar ao último checkpoint"));
+        inv.setItem(1, item(ITEM_RESTART, "§eReiniciar", "§7Recomeçar do início"));
+        inv.setItem(8, item(ITEM_EXIT, "§cSair do Parkour", "§7Voltar ao lobby"));
         inv.setHeldItemSlot(0);
     }
 

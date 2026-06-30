@@ -27,6 +27,7 @@ public final class PlayerJoinListener implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
 
+        event.joinMessage(null); // login screen is auth-only; no vanilla join broadcast
         player.setGameMode(GameMode.ADVENTURE);
         player.setHealth(20.0);
         player.setFoodLevel(20);
@@ -35,6 +36,9 @@ public final class PlayerJoinListener implements Listener {
         player.getInventory().clear();
         player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS,
                 PotionEffect.INFINITE_DURATION, 0, false, false, false));
+
+        // Land the frozen player on the configured login spawn (no-op if unset).
+        plugin.applyLoginSpawn(player);
 
         // Kick the player if they sit on the login screen too long (frees the slot).
         plugin.scheduleLoginTimeout(player);

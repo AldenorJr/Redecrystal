@@ -17,6 +17,7 @@ import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 public final class CommandFilterListener implements Listener {
 
     private static final MiniMessage MM = MiniMessage.miniMessage();
+    private static final String ADMIN_PERM = "crystal.login.admin";
 
     private final CrystalLoginPlugin plugin;
 
@@ -36,6 +37,34 @@ public final class CommandFilterListener implements Listener {
         String cmd = parts[0].toLowerCase();
         switch (cmd) {
             case "/login", "/l" -> {
+                // Staff subcommands are checked BEFORE treating args as a password and
+                // gated by permission. Entering edit mode additionally requires the
+                // password (offline-mode: the op permission is keyed to a spoofable
+                // username), so a non-admin's password just falls through to auth.
+                if (player.hasPermission(ADMIN_PERM)) {
+                    String sub = parts.length >= 2 ? parts[1].toLowerCase() : "";
+                    switch (sub) {
+                        case "manutencao", "manutenção" -> {
+                            if (plugin.isEditing(player.getUniqueId())) {
+                                plugin.exitEditMode(player); // toggle off; no password needed
+                            } else if (parts.length >= 3) {
+                                plugin.enterEditMode(player, parts[2]); // verify password first
+                            } else {
+                                send(player, "<red>Uso: /login manutencao <senha>");
+                            }
+                            return;
+                        }
+                        case "setspawn" -> {
+                            if (plugin.isEditing(player.getUniqueId())) {
+                                plugin.setLoginSpawn(player);
+                            } else {
+                                send(player, "<red>Entre em modo edição primeiro: <white>/login manutencao <senha>");
+                            }
+                            return;
+                        }
+                        default -> { /* fall through to password handling */ }
+                    }
+                }
                 if (parts.length < 2) {
                     send(player, "<red>Uso: /login <senha>");
                     return;

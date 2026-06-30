@@ -20,6 +20,7 @@ public final class PlayerQuitListener implements Listener {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
+        event.quitMessage(null); // login screen is auth-only; no vanilla leave broadcast
         plugin.clearLocalState(event.getPlayer().getUniqueId());
     }
 }

@@ -24,6 +24,8 @@ public final class ChatService {
     private static final String CONFIG_KEY = "chat";
     private static final String DEFAULT_FORMAT = "<prefix> <player_name><gray>:</gray> <message>";
     private static final MiniMessage MINI = MiniMessage.miniMessage();
+    /** Legacy format/reset codes (&k &l &m &n &o &r) — stripped from player messages. */
+    private static final String FORMAT_CODES = "(?i)&[k-or]";
 
     private final CrystalChatPlugin plugin;
     private final CrystalCore crystal;
@@ -102,15 +104,30 @@ public final class ChatService {
     }
 
     /** Render and broadcast a global chat line on this server. */
-    public void broadcast(String server, String player, String message, String prefix, String nameColor) {
+    public void broadcast(String server, String player, String message, String prefix,
+                          String nameColor, boolean allowColors) {
+        Component messageComponent = allowColors ? colorsOnly(message) : Component.text(message);
         Component line = MINI.deserialize(
                 chatFormat,
                 Placeholder.component("prefix", parse(prefix)),
                 Placeholder.component("player_name", parse((nameColor == null ? "" : nameColor) + player)),
                 Placeholder.unparsed("player", player),
                 Placeholder.unparsed("server", server == null ? "" : server),
-                Placeholder.unparsed("message", message));
+                Placeholder.component("message", messageComponent));
         plugin.getServer().sendMessage(line);
+    }
+
+    /**
+     * Translate ONLY legacy '&' colour codes (&0-&f) in a player's message: strip
+     * the section sign and the format/reset codes first, and never interpret
+     * MiniMessage (so players can't inject &lt;click&gt;/&lt;hover&gt;/rainbow).
+     */
+    private static Component colorsOnly(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return Component.empty();
+        }
+        String stripped = raw.replace("§", "").replaceAll(FORMAT_CODES, "");
+        return LegacyComponentSerializer.legacyAmpersand().deserialize(stripped);
     }
 
     /** Parse a MiniMessage string, falling back to legacy '&' codes if present. */

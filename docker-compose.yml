@@ -218,6 +218,7 @@ services:
       - ./EXTERNAL_PLUGINS/LuckPerms-Bukkit-5.5.53.jar:/plugins/LuckPerms.jar:ro
       - ./plugins/crystal-tab/target/crystal-tab.jar:/plugins/crystal-tab.jar:ro
       - ./plugins/crystal-tag/target/crystal-tag.jar:/plugins/crystal-tag.jar:ro
+      - ./plugins/crystal-hologram/target/crystal-hologram.jar:/plugins/crystal-hologram.jar:ro
       - ./plugins/crystal-skin/target/crystal-skin.jar:/plugins/crystal-skin.jar:ro
 
   # ── Minecraft: lobby fleet (Paper). Horizontally scalable: each instance is
@@ -263,6 +264,7 @@ services:
       - ./EXTERNAL_PLUGINS/LuckPerms-Bukkit-5.5.53.jar:/plugins/LuckPerms.jar:ro
       - ./plugins/crystal-tab/target/crystal-tab.jar:/plugins/crystal-tab.jar:ro
       - ./plugins/crystal-tag/target/crystal-tag.jar:/plugins/crystal-tag.jar:ro
+      - ./plugins/crystal-hologram/target/crystal-hologram.jar:/plugins/crystal-hologram.jar:ro
       - ./plugins/crystal-skin/target/crystal-skin.jar:/plugins/crystal-skin.jar:ro
       - ./plugins/crystal-skin/target/crystal-skin.jar:/plugins/crystal-skin.jar:ro
 
@@ -288,6 +290,7 @@ services:
       - ./EXTERNAL_PLUGINS/LuckPerms-Bukkit-5.5.53.jar:/plugins/LuckPerms.jar:ro
       - ./plugins/crystal-tab/target/crystal-tab.jar:/plugins/crystal-tab.jar:ro
       - ./plugins/crystal-tag/target/crystal-tag.jar:/plugins/crystal-tag.jar:ro
+      - ./plugins/crystal-hologram/target/crystal-hologram.jar:/plugins/crystal-hologram.jar:ro
       - ./plugins/crystal-skin/target/crystal-skin.jar:/plugins/crystal-skin.jar:ro
       - ./plugins/crystal-skin/target/crystal-skin.jar:/plugins/crystal-skin.jar:ro
 
@@ -313,6 +316,7 @@ services:
       - ./EXTERNAL_PLUGINS/LuckPerms-Bukkit-5.5.53.jar:/plugins/LuckPerms.jar:ro
       - ./plugins/crystal-tab/target/crystal-tab.jar:/plugins/crystal-tab.jar:ro
       - ./plugins/crystal-tag/target/crystal-tag.jar:/plugins/crystal-tag.jar:ro
+      - ./plugins/crystal-hologram/target/crystal-hologram.jar:/plugins/crystal-hologram.jar:ro
       - ./plugins/crystal-skin/target/crystal-skin.jar:/plugins/crystal-skin.jar:ro
       - ./plugins/crystal-skin/target/crystal-skin.jar:/plugins/crystal-skin.jar:ro
 

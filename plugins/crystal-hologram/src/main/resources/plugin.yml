@@ -1,0 +1,14 @@
+name: CrystalHologram
+version: 0.1.0
+main: com.redecrystal.hologram.CrystalHologramPlugin
+api-version: '1.21'
+author: RedeCrystal
+description: Hologramas de rede (/hologram), driven by central config.
+commands:
+  hologram:
+    description: Gerenciar hologramas de rede (admin)
+    usage: /hologram set <id> <texto> | move <id> | remove <id> | list
+permissions:
+  crystal.hologram.admin:
+    description: Gerenciar hologramas de rede
+    default: op

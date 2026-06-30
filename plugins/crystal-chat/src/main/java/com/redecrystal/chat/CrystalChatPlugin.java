@@ -44,9 +44,10 @@ public final class CrystalChatPlugin extends JavaPlugin {
                 String message = event.get("message");
                 String prefix = event.get("prefix");
                 String nameColor = event.get("nameColor");
+                boolean allowColors = "true".equals(event.get("allowColors"));
                 if (player != null && message != null) {
                     getServer().getScheduler().runTask(this,
-                            () -> chat.broadcast(server, player, message, prefix, nameColor));
+                            () -> chat.broadcast(server, player, message, prefix, nameColor, allowColors));
                 }
             }
         });
