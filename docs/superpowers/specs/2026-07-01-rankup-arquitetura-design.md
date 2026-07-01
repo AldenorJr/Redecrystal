@@ -133,7 +133,9 @@ plugins/
   crystal-economy|rank|prestige|spawn|mine|plot|plantation/   # NOVOS (listener/ commands/ gui/)
   pom.xml                              # registra módulos
 servers/{spawn,mina,arena,terrenos}/<id>/    # config runtime (terrenos: config SWM)
-world/{WORLD_SPAWN,WORLD_MINA,WORLD_ARENA}/…
+world/WORLD_SPAWN_RANKUP/world-spawn.schem   # hub do jogo (era circlespawn.schem)
+world/WORLD_MINA/world-mina.schem            # moldura da mina (era prison-mine-demo.schem)
+world/WORLD_ARENA/world-arena.schem          # mapa da arena PvP (era nome-UUID)
 infra/postgres/init-databases.sql       # + CREATE DATABASE rankup_db;
 infra/kafka/create-topics.sh            # + tópicos RankUP
 docker-compose.yml                      # + rankup-service + fleets spawn/mina/arena/terrenos
