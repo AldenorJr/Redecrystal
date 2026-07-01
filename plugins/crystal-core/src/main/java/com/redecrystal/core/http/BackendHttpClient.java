@@ -93,6 +93,12 @@ public final class BackendHttpClient {
         return toAuthToken(send("POST", "/api/auth/refresh", Map.of("token", token)));
     }
 
+    /** Change a cracked account's password after verifying the current one. */
+    public void changePassword(String uuid, String currentPassword, String newPassword) {
+        send("POST", "/api/auth/password", Map.of(
+                "uuid", uuid, "currentPassword", currentPassword, "newPassword", newPassword));
+    }
+
     /** Whether the player already has an account (to choose login vs register prompt). */
     public AccountStatus accountStatus(String uuid) {
         JsonNode n = send("GET", "/api/auth/account/" + uuid, null);
