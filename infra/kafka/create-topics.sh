@@ -18,6 +18,8 @@ TOPICS=(
   config-updated
   maintenance-enabled
   maintenance-disabled
+  money-updated
+  token-updated
 )
 
 echo "Creating ${#TOPICS[@]} topics on ${BROKERS} (partitions=${PARTITIONS}, rf=${REPLICATION})..."

@@ -5,6 +5,9 @@ CREATE DATABASE core_db;
 -- Shared LuckPerms storage so groups/prefixes are network-wide (all lobbies).
 CREATE DATABASE luckperms_db;
 
+-- RankUP game service (economy, and later rank/prestige/plot/…): its own database.
+CREATE DATABASE rankup_db;
+
 -- Future per-service databases (uncomment when the service is split out):
 -- CREATE DATABASE auth_db;
 -- CREATE DATABASE profile_db;
