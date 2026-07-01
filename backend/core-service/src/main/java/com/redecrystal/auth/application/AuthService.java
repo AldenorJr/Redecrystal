@@ -91,6 +91,26 @@ public class AuthService {
         return issueFor(account);
     }
 
+    /**
+     * Change a cracked account's password after proving the current one. Premium
+     * accounts have no password and are rejected. The active session stays valid
+     * (no token is re-issued).
+     */
+    @Transactional
+    public void changePassword(UUID uuid, String currentPassword, String newPassword) {
+        PlayerAccount account = repository.findById(uuid)
+                .orElseThrow(() -> new UnauthorizedException("conta não registrada"));
+        if (account.isPremium()) {
+            throw new ConflictException("conta premium não usa senha");
+        }
+        requirePassword(newPassword);
+        if (!account.hasPassword() || !passwordEncoder.matches(currentPassword, account.getPasswordHash())) {
+            throw new UnauthorizedException("senha atual incorreta");
+        }
+        account.setPasswordHash(passwordEncoder.encode(newPassword));
+        repository.save(account);
+    }
+
     /** Look up an account by id — used by the login server to tailor its prompt. */
     @Transactional(readOnly = true)
     public Optional<PlayerAccount> find(UUID uuid) {
