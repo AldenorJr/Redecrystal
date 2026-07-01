@@ -284,6 +284,9 @@ services:
       - ./plugins/crystal-lobby/target/crystal-lobby.jar:/plugins/crystal-lobby.jar:ro
       - ./plugins/crystal-chat/target/crystal-chat.jar:/plugins/crystal-chat.jar:ro
       - ./plugins/crystal-profile/target/crystal-profile.jar:/plugins/crystal-profile.jar:ro
+      # RankUP economy — mounted on a lobby for Fase 8 verification only; moves to
+      # spawn/mina/arena/terrenos from Fase 10.
+      - ./plugins/crystal-economy/target/crystal-economy.jar:/plugins/crystal-economy.jar:ro
       - ./plugins/crystal-inventory/target/crystal-inventory.jar:/plugins/crystal-inventory.jar:ro
       - ./plugins/crystal-parkour/target/crystal-parkour.jar:/plugins/crystal-parkour.jar:ro
       - ./servers/bukkit.yml:/data/bukkit.yml

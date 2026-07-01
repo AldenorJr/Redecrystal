@@ -1,0 +1,20 @@
+name: CrystalEconomy
+version: 0.1.0
+main: com.redecrystal.economy.CrystalEconomyPlugin
+api-version: '1.21'
+author: RedeCrystal
+description: RankUP economy (Money/Tokens) — balance GUI, pay, admin give/set.
+commands:
+  saldo:
+    description: Ver seu saldo de Money e Tokens
+    aliases: [balance, money]
+  pagar:
+    description: Transferir Money para outro jogador
+    usage: /pagar <jogador> <valor>
+  eco:
+    description: Administrar economia (admin)
+    usage: /eco <give|set> <jogador> <valor>
+permissions:
+  crystal.economy.admin:
+    description: Dar/ajustar Money e Tokens
+    default: op

@@ -53,6 +53,7 @@
         <module>crystal-lobby</module>
         <module>crystal-chat</module>
         <module>crystal-profile</module>
+        <module>crystal-economy</module>
         <module>crystal-inventory</module>
         <module>crystal-parkour</module>
         <module>crystal-worldinit</module>
