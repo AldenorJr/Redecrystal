@@ -4,3 +4,13 @@ main: com.redecrystal.login.CrystalLoginPlugin
 api-version: '1.21'
 author: RedeCrystal
 description: Auth gateway — register/login, issues a player JWT, forwards to a lobby.
+
+commands:
+  login:
+    description: Entrar com sua senha
+    usage: /login <senha>
+    aliases: [logar, l]
+  registrar:
+    description: Criar sua conta
+    usage: /registrar <senha> <repita a senha>
+    aliases: [register, reg]

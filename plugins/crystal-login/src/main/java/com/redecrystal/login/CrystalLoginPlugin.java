@@ -7,6 +7,7 @@ import com.redecrystal.core.http.AuthToken;
 import com.redecrystal.core.http.BackendHttpClient.BackendException;
 import com.redecrystal.core.http.RemoteConfig;
 import com.redecrystal.core.messaging.KafkaTopics;
+import com.redecrystal.login.command.AuthTabCompleter;
 import com.redecrystal.login.listener.CommandFilterListener;
 import com.redecrystal.login.listener.LoginGuard;
 import com.redecrystal.login.listener.LoginScoreboard;
@@ -86,6 +87,14 @@ public final class CrystalLoginPlugin extends JavaPlugin {
         LoginScoreboard scoreboard = new LoginScoreboard(this, crystal);
         pm.registerEvents(scoreboard, this);
         scoreboard.start();
+
+        // Register the auth commands only as shells so the client offers name +
+        // static hints in tab-complete. The real handling stays in
+        // CommandFilterListener (which cancels the event, so the password is
+        // never logged). No executor is set: the listener consumes them first.
+        AuthTabCompleter completer = new AuthTabCompleter();
+        getCommand("login").setTabCompleter(completer);
+        getCommand("registrar").setTabCompleter(completer);
         getLogger().info("CrystalLogin enabled (timeout=" + loginTimeoutSeconds + "s).");
     }
 
