@@ -1,6 +1,6 @@
 # ──────────────────────────────────────────────────────────────────────────
 # Shared multi-module build. Pass --build-arg MODULE=<eureka-server|api-gateway|
-# core-service> (compose does this per service). The Maven reactor resolves the
+# core-service|rankup-service> (compose does this per service). The Maven reactor resolves the
 # local backend-parent + sibling poms, so each module builds with `-pl … -am`.
 # Build context = ./backend
 # ──────────────────────────────────────────────────────────────────────────
@@ -13,12 +13,14 @@ COPY pom.xml .
 COPY eureka-server/pom.xml eureka-server/pom.xml
 COPY api-gateway/pom.xml api-gateway/pom.xml
 COPY core-service/pom.xml core-service/pom.xml
+COPY rankup-service/pom.xml rankup-service/pom.xml
 RUN mvn -B -q -pl ${MODULE} -am dependency:go-offline
 
 # Copy sources and build the target module (+ its reactor dependencies).
 COPY eureka-server/src eureka-server/src
 COPY api-gateway/src api-gateway/src
 COPY core-service/src core-service/src
+COPY rankup-service/src rankup-service/src
 RUN mvn -B -q -pl ${MODULE} -am clean package -DskipTests \
     && cp ${MODULE}/target/*.jar /build/app.jar
 

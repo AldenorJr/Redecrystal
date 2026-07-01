@@ -1,0 +1,72 @@
+# ──────────────────────────────────────────────────────────────────────────
+# rankup-service — RankUP game service (economy — later rank/prestige/plot/…).
+# Registers with Eureka; reachable only through the API Gateway (no auth here).
+# Defaults target local dev; the `docker` profile overrides hosts in-container.
+# ──────────────────────────────────────────────────────────────────────────
+spring:
+  application:
+    name: rankup-service
+
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${RANKUP_DB:rankup_db}
+    username: ${POSTGRES_USER:crystal}
+    password: ${POSTGRES_PASSWORD:crystal}
+
+  jpa:
+    hibernate:
+      # Flyway owns the schema. Hibernate only validates that entities match it.
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BROKERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+
+server:
+  port: ${SERVER_PORT:8082}
+
+# Eureka service registration.
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+  instance:
+    # In Docker, register by container IP so the gateway can reach us on the network.
+    prefer-ip-address: ${EUREKA_PREFER_IP:false}
+
+# Observability — health + Prometheus scrape endpoint.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus, metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+logging:
+  level:
+    com.redecrystal: INFO
