@@ -30,7 +30,8 @@ import org.slf4j.Logger;
  */
 public final class ConnectionRoutingListener {
 
-    private static final String LOGIN_SERVER = "login";
+    /** Name of the login server in velocity.toml — the only server a non-authed player may reach. */
+    public static final String LOGIN_SERVER = "login";
     private static final String JWT_KEY_PREFIX = "jwt:";
     private static final String SESSION_KEY_PREFIX = "session:";
 

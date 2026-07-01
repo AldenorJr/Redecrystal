@@ -36,7 +36,7 @@ public final class CommandFilterListener implements Listener {
         String[] parts = event.getMessage().trim().split("\\s+");
         String cmd = parts[0].toLowerCase();
         switch (cmd) {
-            case "/login", "/l" -> {
+            case "/login", "/logar", "/l" -> {
                 // Staff subcommands are checked BEFORE treating args as a password and
                 // gated by permission. Entering edit mode additionally requires the
                 // password (offline-mode: the op permission is keyed to a spoofable
@@ -71,7 +71,7 @@ public final class CommandFilterListener implements Listener {
                 }
                 plugin.authenticate(player, parts[1], false);
             }
-            case "/registrar", "/reg" -> {
+            case "/registrar", "/register", "/reg" -> {
                 if (parts.length < 3) {
                     send(player, "<red>Uso: /registrar <senha> <repita a senha>");
                     return;

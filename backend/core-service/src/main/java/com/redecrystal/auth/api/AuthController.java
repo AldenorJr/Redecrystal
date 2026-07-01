@@ -28,6 +28,10 @@ public class AuthController {
 
     public record RefreshRequest(@NotBlank String token) {}
 
+    public record ChangePasswordRequest(@NotNull UUID uuid,
+                                        @NotBlank String currentPassword,
+                                        @NotBlank String newPassword) {}
+
     public record AccountStatusResponse(boolean registered, boolean premium) {}
 
     public record SessionResponse(String uuid, String username, boolean premium,
@@ -53,6 +57,11 @@ public class AuthController {
     @PostMapping("/refresh")
     public SessionResponse refresh(@RequestBody @NotNull RefreshRequest body) {
         return SessionResponse.from(authService.refresh(body.token()));
+    }
+
+    @PostMapping("/password")
+    public void changePassword(@RequestBody @NotNull ChangePasswordRequest body) {
+        authService.changePassword(body.uuid(), body.currentPassword(), body.newPassword());
     }
 
     @GetMapping("/account/{uuid}")

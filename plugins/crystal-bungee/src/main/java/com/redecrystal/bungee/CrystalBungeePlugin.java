@@ -1,6 +1,7 @@
 package com.redecrystal.bungee;
 
 import com.google.inject.Inject;
+import com.redecrystal.bungee.command.ChangePasswordCommand;
 import com.redecrystal.bungee.listener.ConnectionRoutingListener;
 import com.redecrystal.bungee.listener.MaintenanceListener;
 import com.redecrystal.core.CrystalConfig;
@@ -60,6 +61,14 @@ public final class CrystalBungeePlugin {
         var events = proxy.getEventManager();
         events.register(this, new MaintenanceListener(crystal, logger));
         events.register(this, new ConnectionRoutingListener(proxy, crystal, logger, router));
+
+        // Network-wide self-service password change (see ChangePasswordCommand).
+        var commandManager = proxy.getCommandManager();
+        var passwordMeta = commandManager.metaBuilder("trocarsenha")
+                .aliases("mudarsenha")
+                .plugin(this)
+                .build();
+        commandManager.register(passwordMeta, new ChangePasswordCommand(this, proxy, crystal, logger));
 
         // Discover the lobby fleet now and keep it in sync. Each sync also drains
         // any players parked waiting for a lobby to come online.
