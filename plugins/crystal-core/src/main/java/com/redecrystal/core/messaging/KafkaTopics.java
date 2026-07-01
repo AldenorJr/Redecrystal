@@ -14,12 +14,15 @@ public final class KafkaTopics {
     public static final String CONFIG_UPDATED        = "config-updated";
     public static final String MAINTENANCE_ENABLED   = "maintenance-enabled";
     public static final String MAINTENANCE_DISABLED  = "maintenance-disabled";
+    public static final String MONEY_UPDATED         = "money-updated";
+    public static final String TOKEN_UPDATED         = "token-updated";
 
     /** All topics, for broadcast-style consumers. */
     public static final List<String> ALL = List.of(
             PLAYER_CONNECTED, PLAYER_DISCONNECTED, PLAYER_AUTHENTICATED, PLAYER_CHAT,
             SERVER_STARTED, SERVER_STOPPED,
-            CONFIG_UPDATED, MAINTENANCE_ENABLED, MAINTENANCE_DISABLED);
+            CONFIG_UPDATED, MAINTENANCE_ENABLED, MAINTENANCE_DISABLED,
+            MONEY_UPDATED, TOKEN_UPDATED);
 
     private KafkaTopics() {}
 }

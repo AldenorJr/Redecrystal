@@ -242,6 +242,54 @@ public final class BackendHttpClient {
         return servers;
     }
 
+    // ── Economy (RankUP) ──
+
+    /** Fetch a balance, or {@code null} if the player has no row yet. */
+    public EconomyData getEconomy(String uuid) {
+        JsonNode n = send("GET", "/api/economy/" + uuid, null, true);
+        return n == null ? null : toEconomy(n);
+    }
+
+    /** Ensure the row exists (creates it zeroed) and return the balance. */
+    public EconomyData ensureEconomy(String uuid) {
+        return toEconomy(send("PUT", "/api/economy/" + uuid, Map.of()));
+    }
+
+    /** Additive Money delta (mining/harvest/kill). Never rejected for funds. */
+    public EconomyData addMoney(String uuid, long delta, String source) {
+        return toEconomy(send("POST", "/api/economy/" + uuid + "/money", Map.of(
+                "delta", delta, "source", source == null ? "" : source)));
+    }
+
+    /** Additive Tokens delta. */
+    public EconomyData addTokens(String uuid, long delta, String source) {
+        return toEconomy(send("POST", "/api/economy/" + uuid + "/tokens", Map.of(
+                "delta", delta, "source", source == null ? "" : source)));
+    }
+
+    /** Conditional debit; throws {@link InsufficientFundsException} (422) if broke. */
+    public EconomyData debitMoney(String uuid, long cost, String reason) {
+        return toEconomy(send("POST", "/api/economy/" + uuid + "/debit", Map.of(
+                "cost", cost, "reason", reason == null ? "" : reason)));
+    }
+
+    /** Atomic transfer; throws {@link InsufficientFundsException} (422) if the payer is broke. */
+    public EconomyData transfer(String from, String to, long amount) {
+        return toEconomy(send("POST", "/api/economy/transfer", Map.of(
+                "from", from, "to", to, "amount", amount)));
+    }
+
+    /** Absolute admin set with optimistic locking; {@link BackendException} 409 if stale. */
+    public EconomyData setEconomy(String uuid, long money, long tokens, int version) {
+        return toEconomy(send("PUT", "/api/economy/" + uuid + "/set", Map.of(
+                "money", money, "tokens", tokens, "version", version)));
+    }
+
+    private EconomyData toEconomy(JsonNode n) {
+        return new EconomyData(n.path("uuid").asText(), n.path("money").asLong(),
+                n.path("tokens").asLong(), n.path("version").asInt());
+    }
+
     // ── plumbing ──
 
     private RemoteConfig toRemoteConfig(JsonNode node) {
@@ -278,6 +326,9 @@ public final class BackendHttpClient {
                 if (sc == 404 && allowNotFound) {
                     return null;
                 }
+                if (sc == 422) {
+                    throw new InsufficientFundsException(method + " " + path + " -> HTTP 422: " + resp.body());
+                }
                 throw new BackendException(sc, method + " " + path + " -> HTTP " + sc + ": " + resp.body());
             } catch (BackendException e) {
                 throw e; // non-2xx is not retryable here
@@ -298,8 +349,11 @@ public final class BackendHttpClient {
         }
     }
 
-    /** Raised when a backend call fails (transport error or non-2xx response). */
-    public static final class BackendException extends RuntimeException {
+    /**
+     * Raised when a backend call fails (transport error or non-2xx response). Not
+     * {@code final}: {@link InsufficientFundsException} specialises it for HTTP 422.
+     */
+    public static class BackendException extends RuntimeException {
 
         /** HTTP status of the failed response, or 0 for a transport-level error. */
         private final int statusCode;
