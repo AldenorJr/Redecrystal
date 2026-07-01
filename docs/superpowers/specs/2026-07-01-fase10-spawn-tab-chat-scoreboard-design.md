@@ -97,7 +97,7 @@ Redis/HTTP fora nunca derruba o hub.
 | **Scoreboard: 1 chamada Redis por jogador por tick** | `crystal-spawn` espelha a `LobbyScoreboard` (board por jogador, times por linha, refresh em timer). Para o saldo/rank de **cada** jogador, um `hgetAll rankup:{uuid}` + `hgetAll economy:{uuid}` por tick — leitura só do **próprio** jogador (não da rede toda), no molde do `TagOverrides.read`. Miss/Redis fora → 0/TERRA (fail-open). |
 | **TAB agregada por _modo de jogo_ (não por instância) — DECIDIDO** | A TAB é **agrupada por modo**: no lobby lista **todos** os jogadores em qualquer instância de lobby; no RankUP lista **todos** os jogadores em qualquer instância RankUP (spawn/mina/arena/terrenos), **independente da instância**. Modo = grupo de `SERVER_TYPE` (mapa config `tab.groups`: `lobby={lobby}`, `rankup={spawn,mina,arena,terrenos}`). Um hash Redis **por grupo** `tab:<group>` (field=uuid → json). O `crystal-tab` lê `tab:<seuGrupo>` 1×/tick e injeta entradas para jogadores do **mesmo modo** em **outras** instâncias (ver §4.5 e §10). |
 | **Entrada da TAB escrita pelo servidor atual do jogador — DECIDIDO** | Cada servidor de jogo escreve a entrada do próprio jogador em `tab:<group>` (join + refresh periódico, remove no quit), montando `{nick,cargo,rankId,prestige,money,server}`: o **cargo** é resolvido **localmente** (permissão/`chat.roles`/`tag:overrides`) e `rank/money` vêm de `rankup:{uuid}`/`economy:{uuid}` (Redis). Isso resolve o **cargo de jogadores remotos** (vem gravado na entrada) e o **servidor defasado** (a entrada é reescrita a cada presença), sem depender de write-through das Fases 8/9. |
-| **TAB mostra só o CARGO; scoreboard mostra o rank — DECIDIDO** | Na **TAB**, o prefixo do nome é **apenas o cargo de rede** (`[VIP]`/`[CEO]`/`[Dono]`) — **não** o rank de jogo. O **rank de jogo** aparece no **scoreboard** (sidebar) e no **chat do RankUP**. (Rank ≠ cargo, master §1.1; a escolha de onde cada um aparece é do dono.) |
+| **TAB do RankUP: CARGO + NICK + SIGLA do clã — DECIDIDO** | Na **TAB do RankUP**, cada linha mostra **cargo de rede** + **nick** + **sigla do clã** (3 letras, Fase 17): `[VIP] Steve [CLA]` — cargo como prefixo, nick, e a **sigla** como sufixo. **Não** entra o rank de jogo (esse fica no **scoreboard**/sidebar e no **chat do RankUP**). Sem clã → sem sigla. A `sigla` vem do `clanTag` da entrada `tab:rankup` (escrita pelo servidor atual do jogador, lendo `clan-of:{uuid}`+`clan:{clanId}`). No **lobby**, a TAB mantém só cargo + nick. (Rank ≠ cargo, master §1.1.) |
 | **Chat: cargo sempre; rank só no modo RankUP — DECIDIDO** | `crystal-chat` acrescenta `rankId` (lido de `rankup:{uuid}` do remetente) ao envelope `player-chat` (que já carrega `server` e `prefix` do cargo). No **modo RankUP** o consumidor compõe `<cargo> <prefixo do rank> Nome: msg` (cargo **e** rank); no **lobby**, só `<cargo> Nome: msg`. O prefixo do rank vem do catálogo `rank` (config). Formato **config-driven** por grupo (`chatFormat`/`chatFormat.rankup` com placeholder `<rank_prefix>`). |
 | **`FleetRouter` genérico por tipo** | `LobbyRouter` (hardcode `"lobby"` + `name.startsWith("lobby")`) vira `FleetRouter` parametrizado por **`type`** (e prefixo de nome). O `crystal-bungee` instancia **um por tipo** (`lobby`, `spawn`; `mina` na Fase 11). Cada um mantém seu `pending`/`waitingFor…`/discovery — mesma lógica least-loaded, `pending` smoothing e drop de instância que saiu da registry. |
 | **Portal lobby→spawn: roteamento sob demanda no proxy** | O login continua roteando o jogador ao **lobby** (fluxo da Fase 0–7 intacto). Do hub, um **item/portal** publica um plugin-message num canal novo `crystal:route` com o tipo alvo (`spawn`); um listener no proxy chama `FleetRouter(spawn).route(player)` (least-loaded). Espelha o padrão do `AUTH_CHANNEL` (plugin-message backend→proxy) já usado no login. **Não** se nomeia instância no cliente (o proxy escolhe), preservando o balanceamento. |
@@ -254,15 +254,16 @@ e **só** lista jogadores do próprio servidor.
 A Fase 10 reescreve o `refresh()` em torno de **grupos por modo** (§3):
 - **Escrita da própria entrada.** Cada servidor de jogo escreve a entrada do seu
   jogador em `tab:<group>` (join + refresh no tick, `hdel` no quit): `{nick,cargo,
-  rankId,prestige,money,server}`. O **cargo** é resolvido **localmente**
-  (`chat.roles`+`tag:overrides`, único servidor que lê as permissões dele); `rank/
-  money` vêm de `rankup:{uuid}`/`economy:{uuid}` (Redis). `group` = mapa
+  clanTag,rankId,prestige,money,server}`. O **cargo** é resolvido **localmente**
+  (`chat.roles`+`tag:overrides`, único servidor que lê as permissões dele); a
+  **clanTag** (sigla de 3 letras, Fase 17) vem de `clan-of:{uuid}`+`clan:{clanId}`;
+  `rank/money` vêm de `rankup:{uuid}`/`economy:{uuid}` (Redis). `group` = mapa
   `tab.groups` a partir do `SERVER_TYPE`.
 - **Leitura do grupo.** `hgetAll(tab:<seuGrupo>)` 1×/tick → todos os jogadores do
-  **mesmo modo** (em qualquer instância). Renderiza `nick` + **cargo** (prefixo) +
-  `server`. **A TAB mostra só o cargo** (`[VIP]`/`[CEO]`/`[Dono]`) — o rank de jogo
-  **não** entra na TAB (decisão do dono, §3); `prestige/money` podem ir como colunas
-  auxiliares se desejado, mas o prefixo do nome é o cargo.
+  **mesmo modo** (em qualquer instância). No **RankUP** renderiza `[cargo] nick
+  [sigla]` (**cargo + nick + sigla do clã**, §3); no **lobby**, `[cargo] nick`. O
+  **rank de jogo não entra na TAB** (fica no scoreboard); `prestige/money` podem ir
+  como colunas auxiliares se desejado.
 
 **Entradas para jogadores remotos.** O Paper `playerListName(...)` só edita a
 entrada de um jogador **realmente conectado a este servidor**. Listar jogadores de

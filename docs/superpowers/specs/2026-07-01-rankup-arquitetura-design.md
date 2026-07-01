@@ -64,6 +64,7 @@ Adicionamos:
 | `crystal-plot` | terrenos | Ciclo de vida SWM, GUI `/terreno`, membros/permissões, expansão, upgrades, home |
 | `crystal-plantation` | terrenos | Caps por cultura por terreno, upgrades elevam caps, colheita dropa → venda |
 | `crystal-arena` | arena | PvP de loot (dropa ao morrer), kill reward, stats, loja de gear (Fase 15/16) |
+| `crystal-clan` | spawn/mina/arena/terrenos | Clãs: núcleo/cargos, banco em Money, níveis, chat de clã, sigla no TAB, ranking (Fase 17) |
 
 Reaproveitados sem reescrever: `crystal-bungee` (ganha descoberta/roteamento dos
 novos tipos), `crystal-tab`, `crystal-tag`, `crystal-chat` (chat global via
@@ -85,8 +86,9 @@ Contextos (DDD `api/application/domain`): `economy` (`player_economy`), `rank`
 (`player_rank`; ladder em config), `prestige` (`player_prestige`), `plot`
 (`plots`,`plot_members`,`plot_settings`,`plot_upgrades`,`plot_worlds`),
 `plantation` (`plot_plantations`), `mine` (`mine_stats`; minas em config), `stat`
-(`player_rankup_stats`), `home` (`player_homes`). **Fora** do rankup_db:
-Punishments (rede→`moderation`, mais tarde) e Settings (rede→`profile`).
+(`player_rankup_stats`), `home` (`player_homes`), `clan` (`clans`, `clan_members`;
+níveis/score em config — Fase 17). **Fora** do rankup_db: Punishments
+(rede→`moderation`, mais tarde) e Settings (rede→`profile`).
 
 ### 2.3 Diagrama ASCII
 
@@ -167,6 +169,10 @@ plot_plantations (plantation) PK(plot_id,crop) · planted_count INT d0
 mine_stats       (mine)   PK(mine_id,player_uuid) · blocks_mined BIGINT d0  (minas em config `mine`)
 player_rankup_stats (stat) player_uuid PK · blocks_mined/ores_mined/pvp_kills/pvp_deaths BIGINT
 player_homes     (home)   PK(player_uuid,name) · world/x/y/z/yaw/pitch
+clans            (clan)  ← optimistic-lock (estrutura/nível)  [Fase 17]
+  clan_id UUID PK · tag CHAR(3) UNIQUE (sigla 3 letras) · name VARCHAR(24) ·
+  leader_uuid UUID · level INT d1 · bank BIGINT d0 · score BIGINT d0 · version INT d0 · created/updated_at
+clan_members     (clan)   PK(clan_id,member_uuid) · member_uuid UNIQUE (1 clã/jogador) · role · joined_at
 ```
 
 Owner de cada tabela = seu contexto; todas em `rankup_db`. **Catálogos** (ladder
@@ -207,17 +213,20 @@ Nomes kebab-case (espelham `KafkaTopics`/`create-topics.sh`). Key = `uuid`
 | `plot-saved` | plotId | `{plotId,version,server}` | crystal-plot | auditoria/anti-corrupção | libera lease em `plot_worlds` |
 | `plot-updated` | plotId | `{plotId,kind}` (member/setting/upgrade/expand) | plot | crystal-plot de outras instâncias (invalida cache), GUI | invalida `plot:{plotId}` |
 
-> **TAB por modo (decisão Fase 10, 2026-07-01):** a TAB é **agrupada por modo de
+> **TAB por modo (decisão Fase 10/17, 2026-07-01):** a TAB é **agrupada por modo de
 > jogo** (lobby vê lobby; RankUP vê RankUP, qualquer instância), num hash Redis
 > **por grupo** `tab:<group>` (mapa `tab.groups` por `SERVER_TYPE`:
 > `lobby={lobby}`, `rankup={spawn,mina,arena,terrenos}`), field=uuid → json
-> `{nick,cargo,rankId,prestige,money,server}`. A **entrada é escrita pelo servidor
-> atual do jogador** (cargo resolvido localmente + rank/money do Redis), não por
-> write-through das Fases 8/9. A **TAB exibe só o cargo**; o rank de jogo aparece
-> no scoreboard e no chat do RankUP. Isto substitui o `tab:rankup`
-> `{nick,rank,prestige,money,server}` antes listado abaixo.
+> `{nick,cargo,clanTag,rankId,prestige,money,server}`. A **entrada é escrita pelo
+> servidor atual do jogador** (cargo resolvido localmente + sigla do clã de
+> `clan-of`/`clan:{}` + rank/money do Redis). No **RankUP** a TAB exibe **cargo +
+> nick + sigla do clã** (`[VIP] Steve [CLA]`, sigla = 3 letras, Fase 17); no
+> **lobby**, cargo + nick. O **rank de jogo não entra na TAB** (fica no scoreboard e
+> no chat do RankUP). Isto substitui o `tab:rankup` `{nick,rank,…}` antes listado.
 | `mine-reset` | mineId+server | `{mineId,server,resetAt}` | crystal-mine | holograma/animação da própria instância | `mine:{server}:{mineId}` |
 | `player-chat` **(existente)** | uuid | + `server`,`rankId` no envelope | crystal-chat | crystal-chat (formato global) | — |
+| `clan-chat` (Fase 17) | clanId | `{clanId,senderUuid,senderName,message}` | crystal-clan | crystal-clan (entrega aos membros online do clã) | — |
+| `clan-updated` (Fase 17) | clanId | `{clanId,kind}` (member/bank/level/score/disband) | clan (backend) | crystal-clan (GUI/TAB; disband expulsa) | invalida `clan:{clanId}` |
 
 **Regra Kafka × Redis:**
 
@@ -344,7 +353,10 @@ registry):
 | Metadados terreno | `plot:{plotId}` | hash | 5min | read-through; invalida por `plot-updated` |
 | Sticky terreno | `plot-server:{uuid}` | string(serverId) | lease ~5min renovado | escrito no roteamento/entrada; apagado após save+unload |
 | Lock Slime world | `plot-lock:{plotId}` (NX) + `plot_worlds.lease_*` | string NX+TTL | ~2min renovável | anti double-load (§9) |
-| Leaderboards | `leaderboard:money`/`:tokens`/`:prestige`/`:blocks-mined` | sorted set | sem TTL | write-through (`RedisClient.leaderboardAdd` já existe) |
+| Leaderboards | `leaderboard:money`/`:tokens`/`:prestige`/`:blocks-mined`/`:clan-score` | sorted set | sem TTL | write-through (`RedisClient.leaderboardAdd` já existe) |
+| Metadados de clã (Fase 17) | `clan:{clanId}` | hash{tag,name,level,bank,score,leader} | 10min | write-through; read-through; invalida por `clan-updated` |
+| Clã do jogador (Fase 17) | `clan-of:{uuid}` | string(clanId) | — | write-through no join/leave/disband (chat/TAB leem a sigla) |
+| Convite de clã (Fase 17) | `clan-invite:{uuid}` | set(clanId) | ~2min | `SADD … EX 120`; efêmero, sem tabela |
 
 Read-through (miss→Postgres→popula): saldos, metadados de terreno. Write-through
 (grava os dois): saldo, rank, prestige, TAB, leaderboard, mina. Falha de Redis é
@@ -485,6 +497,15 @@ Citizens como plugin externo (montar em `EXTERNAL_PLUGINS/` como LuckPerms/FAWE)
 placeholders lendo cache Redis (não bloquear). Verificado: NPCs abrem as GUIs
 certas; placeholders resolvem em scoreboard/holo de terceiros; boost de Tokens
 aplica multiplicador temporário.
+
+**Fase 17 — Clãs.** Contexto `clan` no `rankup-service` (`clans`, `clan_members`;
+níveis/score em config), plugin `crystal-clan` (9º), banco compartilhado em Money +
+níveis pagos, chat de clã cross-server (`clan-chat`) + **sigla (3 letras) no TAB**
+(cargo + nick + sigla) e no chat global, e ranking por `score` próprio
+(`leaderboard:clan-score`). Um clã por jogador; cargos LEADER/OFFICER/MEMBER;
+convites efêmeros no Redis. Reusa débito/aditivo da economia (Fase 8) e a TAB por
+modo (Fase 10). Verificado: criar/convidar/depositar/sacar/nível cross-server,
+`/c` chega aos membros, sigla no TAB/chat, ranking ordena, dissolver expulsa.
 
 > Fase 8 da rede (Kubernetes): quando os fleets existirem, materializar os
 > manifests do §7.3 (HPA spawn/mina, StatefulSet sticky terrenos, replica única

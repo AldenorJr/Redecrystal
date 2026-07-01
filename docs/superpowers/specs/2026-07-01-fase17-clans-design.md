@@ -88,7 +88,7 @@ A Fase 17 **reaproveita** intensamente: o `rankup-service` e o contexto `economy
 |------|---------|
 | **Onde vive o contexto** | Novo contexto `clan` no **`rankup-service`/`rankup_db`** (não `core-service`). Clã é feature do jogo RankUP (banco em Money, integra com `economy`); segue "um jogo, um serviço" do master §2.2. |
 | **Um clã por jogador** | `clan_members.member_uuid` tem **UNIQUE global** (não só PK composta). Tentar entrar/criar já pertencendo → **409**. Simplifica identidade (chat/TAB resolvem `clan-of:{uuid}` sem ambiguidade). |
-| **Identidade** | `tag` VARCHAR(4) **UNIQUE** (2–4 chars `A–Z0–9`, uppercase; validada no serviço), `name` VARCHAR(24). Tag é o que aparece no TAB/chat; nome no GUI. Conflito de tag → **409**. |
+| **Identidade (sigla = 3 letras) — DECIDIDO** | `tag` **CHAR(3) UNIQUE** — a **sigla do clã** é **exatamente 3 letras** `A–Z` (uppercase; validada no serviço, rejeita ≠3 ou não-letra → 400). `name` VARCHAR(24). A **sigla** é o que aparece no **TAB** (`[CLA]`) e no **chat**; o nome só no GUI. Conflito de sigla → **409**. |
 | **Cargos** | Enum `ClanRole {LEADER, OFFICER, MEMBER}`. **MEMBER**: depositar, chat, ver. **OFFICER**: + convidar, expulsar MEMBER. **LEADER**: + sacar, comprar nível, promover/rebaixar, transferir liderança, dissolver, renomear. Exatamente **1 LEADER** por clã. |
 | **Banco só Money** | O banco do clã é **Money** (contexto `economy` do jogador). Depositar = `debit` no jogador (422 se sem saldo) **+** aditivo no `clans.bank`. Sacar = `debit` no `clans.bank` (422) **+** aditivo no jogador. Tokens ficam individuais. |
 | **Depósito: aditivo bank+score juntos** | Um só UPDATE atômico soma `bank += delta` **e** `score += floor(delta × scoring.perMoney)` (sem versão, sem 409) — molde do `addMoney`/`addStats` do master §4.2. Score é subproduto do depósito, calculado no backend lendo a config `clan`. |
@@ -114,7 +114,7 @@ duas tabelas no `rankup_db`:
 ```sql
 CREATE TABLE clans (
   clan_id      UUID PRIMARY KEY,
-  tag          VARCHAR(4)  NOT NULL UNIQUE,
+  tag          CHAR(3)     NOT NULL UNIQUE,   -- sigla: exatamente 3 letras A-Z
   name         VARCHAR(24) NOT NULL,
   leader_uuid  UUID        NOT NULL,
   level        INT         NOT NULL DEFAULT 1,
@@ -456,19 +456,17 @@ disband). O **ranking** e a **tag no TAB** são **estado quente lido no tick**
   **Fase 10** o `tab:rankup` (TAB por modo) e o `crystal-chat` no formato RankUP, além
   do fleet de servidores de jogo onde o `crystal-clan` roda. **Só começa depois
   dessas mergeadas.**
-- **Contexto `clan` novo (o master não o listou).** O master §2.2 enumera os
-  contextos do `rankup_db` **sem** clã. A Fase 17 **adiciona** `clan` (tabelas
-  `clans`/`clan_members`) — mesmo banco, contexto coexistindo, sem colisão de DDL
-  (migração própria `V<n>__rankup_clan.sql`).
-- **Plugin `crystal-clan` novo (9º plugin).** O master §2.1 enumera 7 plugins (8º é
-  `crystal-arena`, Fase 15); clã é o **9º**. Roda nos servidores de jogo junto do
-  `crystal-economy`; dobrar isso em `crystal-economy` (economia-only) ou
-  `crystal-spawn` (spawn-only) violaria responsabilidade única — clã existe em
-  spawn/mina/arena/terrenos.
-- **Tag no TAB diverge do master §5.** O master decidiu "a TAB exibe **só o cargo**;
-  o rank de jogo aparece no scoreboard e no chat". A Fase 17 **acrescenta a tag do
-  clã** (`clanTag`) ao json `tab:rankup` e a exibe junto do cargo — extensão
-  explícita, decidida com o usuário. O rank de jogo continua fora do TAB.
+- **Contexto `clan` e plugin `crystal-clan` — integrados ao master.** O master §2.1
+  (plugins), §2.2 (contextos), §4 (ERD `clans`/`clan_members`), §5 (tópicos
+  `clan-chat`/`clan-updated`), §8 (chaves `clan:*`) e §10 (roadmap Fase 17) foram
+  **atualizados** para incluir os clãs. `crystal-clan` é o **9º plugin**, roda nos
+  servidores de jogo (spawn/mina/arena/terrenos) junto do `crystal-economy`;
+  migração própria `V<n>__rankup_clan.sql`, sem colisão de DDL.
+- **Sigla no TAB — integrada ao master.** Decisão do dono (2026-07-01): a **TAB do
+  RankUP exibe `cargo + nick + sigla do clã`** (`[VIP] Steve [CLA]`, sigla = **3
+  letras**); o rank de jogo continua fora do TAB (fica no scoreboard/chat). O master
+  §5 e a Fase 10 foram **atualizados** para incluir `clanTag` no json `tab:rankup` e
+  esse formato — não é mais divergência, e sim parte do design.
 - **`clan-of:{uuid}` é chave Redis nova.** Não está no §8 do master; é write-through
   simples (string→clanId), fail-open, usada por chat/TAB para pintar a tag sem HTTP.
 - **`crystal.clans()` é o 5º/6º facade por feature.** Nasce da infra de facade da
