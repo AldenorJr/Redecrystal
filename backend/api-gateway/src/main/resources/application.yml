@@ -42,6 +42,10 @@ spring:
           uri: lb://core-service
           predicates:
             - Path=/api/activity/**
+        - id: rankup-economy
+          uri: lb://rankup-service
+          predicates:
+            - Path=/api/economy/**
       httpclient:
         connect-timeout: 2000
         response-timeout: 5s

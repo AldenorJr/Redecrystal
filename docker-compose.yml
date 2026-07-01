@@ -133,6 +133,33 @@ services:
       retries: 12
       start_period: 60s
 
+  # ── RankUP game service (economy — later rank/prestige/plot/…). Internal only. ──
+  rankup-service:
+    build:
+      context: ./backend
+      args:
+        MODULE: rankup-service
+    env_file: ./configuration/environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8082
+      POSTGRES_PORT: 5432
+      RANKUP_DB: rankup_db
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8082/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
   # ── API Gateway: single entry point + only authenticator ──
   api-gateway:
     build:
@@ -144,6 +171,8 @@ services:
       eureka-server:
         condition: service_healthy
       core-service:
+        condition: service_healthy
+      rankup-service:
         condition: service_healthy
     ports:
       - "${GATEWAY_PORT:-8080}:8080"
