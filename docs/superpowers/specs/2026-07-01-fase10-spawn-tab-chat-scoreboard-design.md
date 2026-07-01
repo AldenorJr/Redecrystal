@@ -120,7 +120,7 @@ como `lobby-02`/`lobby-03`). Volumes montam os jars do jogo:
 ```
 environment: &spawn-env
   <<: *lobby-env base (TYPE/VERSION/MEMORY/void)
-  CRYSTAL_WORLD_SCHEMATIC: /schematics/world-spawn.schematic
+  CRYSTAL_WORLD_SCHEMATIC: /schematics/world-spawn.schem
   SERVER_TYPE: spawn
 volumes:
   - ./plugins/crystal-spawn/target/crystal-spawn.jar:/plugins/crystal-spawn.jar:ro
@@ -128,7 +128,7 @@ volumes:
   - ./plugins/crystal-rank/target/crystal-rank.jar:/plugins/crystal-rank.jar:ro
   - ./plugins/crystal-prestige/target/crystal-prestige.jar:/plugins/crystal-prestige.jar:ro
   - ./plugins/crystal-tab|chat|tag|worldinit|... (como o lobby)
-  - ./world/WORLD_SPAWN/world-spawn.schematic:/schematics/world-spawn.schematic:ro
+  - ./world/WORLD_SPAWN_RANKUP/world-spawn.schem:/schematics/world-spawn.schem:ro
   - FastAsyncWorldEdit + LuckPerms (EXTERNAL_PLUGINS, como o lobby)
 ```
 
@@ -434,7 +434,7 @@ possível helper de leitura de `tab:rankup`. **Sem** mudança de backend/SDK HTT
 **Infra** — `docker-compose.yml`: âncora `&spawn-env`, `spawn-01`/`spawn-02`
 (montando `crystal-spawn`/`crystal-economy`/`crystal-rank`/`crystal-prestige` +
 tab/chat/tag/worldinit), **remover** os volumes de economy/rank/prestige do
-`lobby-01`; `world/WORLD_SPAWN/…schematic` (asset novo). **Sem** tópicos/chaves
+`lobby-01`; montar `world/WORLD_SPAWN_RANKUP/world-spawn.schem` (asset já no repo). **Sem** tópicos/chaves
 novas no `create-topics.sh` (a Fase 10 lê o que as Fases 8/9 escrevem;
 `player-server` é Redis, não Kafka).
 
@@ -490,10 +490,11 @@ novas no `create-topics.sh` (a Fase 10 lê o que as Fases 8/9 escrevem;
   de dentro do jogo. O canal `crystal:route` é **novo** (espelha o `AUTH_CHANNEL`),
   e o proxy precisa registrá-lo (`getChannelRegistrar().register(...)`), como já
   faz com o `crystal:auth`.
-- **`crystal-worldinit` reusado sem mudança**, mas o asset `world/WORLD_SPAWN/…`
-  (schematic do spawn) **não existe** — precisa ser produzido (como o
-  `hub-lobby-medieval.schematic` do lobby). Marcar como **NOVO** (asset, não
-  código).
+- **`crystal-worldinit` reusado sem mudança**. **Asset:** o schematic do hub já
+  existe no repo em **`world/WORLD_SPAWN_RANKUP/world-spawn.schem`** (originalmente
+  `circlespawn.schem`), colado no VOID via `CRYSTAL_WORLD_SCHEMATIC` como o
+  `hub-lobby-medieval.schematic` do lobby. Falta apenas fixar as âncoras dentro do
+  build (spawn point + posições dos portais/NPCs de mina, arena, terrenos e loja).
 - **Chat: `chatFormat` atual não tem `<server_tag>`/`<rank_prefix>`.** O
   `DEFAULT_FORMAT` é `"<prefix> <player_name><gray>:</gray> <message>"` (só cargo).
   A Fase 10 amplia o formato e faz o `crystal-chat` **também** ler o catálogo

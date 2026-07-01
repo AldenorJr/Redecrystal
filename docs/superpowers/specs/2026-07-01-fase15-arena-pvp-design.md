@@ -244,6 +244,11 @@ nos lobbies), `depends_on: *mc-deps`, mundo VOID/FLAT (arena PvP tem mundo próp
 `world/WORLD_ARENA`), `max-players` ~200 (env → `maxPlayers` registrado). K8s
 (master §7.3): `Deployment replicas=1`.
 
+**Asset:** o mapa da arena já existe no repo em **`world/WORLD_ARENA/world-arena.schem`**
+(exportado do WorldEdit, antes com nome-UUID). Colado no VOID pelo `crystal-worldinit`
+via `CRYSTAL_WORLD_SCHEMATIC=/schematics/world-arena.schem` (como o hub do lobby/spawn);
+falta fixar o **spawn/respawn point** dentro do build.
+
 ## 5. Fluxo de dados
 
 **Entrar na arena (conexão direta + cap)**

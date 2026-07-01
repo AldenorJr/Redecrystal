@@ -93,7 +93,10 @@ padrão de **fleet do lobby** (master §7.1) e o `FleetRouter` da Fase 10.
 - **Reset como schematic/undo do WorldEdit** — a mina não é um build restaurado de
   arquivo; é um **preenchimento aleatório por composição** (`RandomPattern`). O
   schematic `WORLD_MINA` é só a estrutura ao redor (parede/plataforma), colada uma
-  vez pelo `crystal-worldinit`, fora da região minerável.
+  vez pelo `crystal-worldinit`, fora da região minerável. **Asset:** já existe no
+  repo em **`world/WORLD_MINA/world-mina.schem`** (originalmente `prison-mine-demo.schem`);
+  falta definir, na config `mine`, a(s) **bounding box(es)** da(s) região(ões)
+  minerável(is) e a `composition[]` de cada mina.
 
 ## 3. Decisões de design
 
@@ -132,7 +135,7 @@ mina-01:
     VERSION: "1.21.1"
     LEVEL_TYPE: FLAT
     GENERATOR_SETTINGS: '{"biome":"minecraft:the_void","layers":[{"block":"minecraft:air","height":1}]}'
-    CRYSTAL_WORLD_SCHEMATIC: /schematics/mina.schematic   # estrutura ao redor, não a região minerável
+    CRYSTAL_WORLD_SCHEMATIC: /schematics/world-mina.schem   # estrutura ao redor, não a região minerável
     SERVER_ID: mina-01
     SERVER_TYPE: mina
     SERVER_HOST: mina-01
@@ -145,7 +148,7 @@ mina-01:
     - ./plugins/crystal-chat|tab|tag|hologram|inventory|profile/... (compartilhados)
     - ./EXTERNAL_PLUGINS/FastAsyncWorldEdit-Paper-2.15.2.jar:/plugins/FastAsyncWorldEdit.jar:ro
     - ./plugins/crystal-worldinit/target/crystal-worldinit.jar:/plugins/crystal-worldinit.jar:ro
-    - ./world/WORLD_MINA/mina.schematic:/schematics/mina.schematic:ro
+    - ./world/WORLD_MINA/world-mina.schem:/schematics/world-mina.schem:ro
 mina-02:  { <<: *mina-env, SERVER_ID: mina-02, SERVER_HOST: mina-02 }
 ```
 
