@@ -10,8 +10,13 @@ import java.util.UUID;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import org.bukkit.Color;
+import org.bukkit.FireworkEffect;
 import org.bukkit.GameMode;
+import org.bukkit.Location;
+import org.bukkit.entity.Firework;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.meta.FireworkMeta;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -29,6 +34,10 @@ public final class PlayerJoinListener implements Listener {
     private static final MiniMessage MM = MiniMessage.miniMessage();
     /** Trailing text of the join line, in PT, rendered grey. */
     private static final String JOIN_SUFFIX = "<gray> entrou no lobby!";
+    /** RedeCrystal purple (0xB14AED), matching the brand wordmark. */
+    private static final Color CRYSTAL_PURPLE = Color.fromRGB(0xB1, 0x4A, 0xED);
+    private static final int JOIN_FIREWORK_COUNT = 3;
+    private static final int JOIN_FIREWORK_POWER = 1;
 
     private final CrystalLobbyPlugin plugin;
     private final CrystalCore crystal;
@@ -92,5 +101,29 @@ public final class PlayerJoinListener implements Listener {
                 : MM.deserialize(cargo.prefix()).append(Component.text(" ")).append(name).append(suffix);
 
         plugin.getServer().sendMessage(line);
+        launchJoinFireworks(player);
+    }
+
+    /**
+     * Celebrate an announced join with a small burst of RedeCrystal-purple
+     * fireworks around the player. Runs on the main thread (join event context),
+     * where spawning entities is safe.
+     */
+    private void launchJoinFireworks(Player player) {
+        FireworkEffect effect = FireworkEffect.builder()
+                .with(FireworkEffect.Type.BALL_LARGE)
+                .withColor(CRYSTAL_PURPLE)
+                .withFade(Color.WHITE)
+                .withTrail()
+                .withFlicker()
+                .build();
+        Location base = player.getLocation();
+        for (int i = 0; i < JOIN_FIREWORK_COUNT; i++) {
+            Firework firework = player.getWorld().spawn(base, Firework.class);
+            FireworkMeta meta = firework.getFireworkMeta();
+            meta.addEffect(effect);
+            meta.setPower(JOIN_FIREWORK_POWER);
+            firework.setFireworkMeta(meta);
+        }
     }
 }
